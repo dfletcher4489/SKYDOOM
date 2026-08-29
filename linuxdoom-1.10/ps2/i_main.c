@@ -38,8 +38,8 @@ rcsid[] = "$Id: i_main.c,v 1.4 1997/02/03 22:45:10 b1 Exp $";
 #include "gs/ps_gs.h"
 #include "log/ps_log.h"
 #include "io/ps_file_io.h"
-#include "math/ps_misc.h"
 #include "io/ps_memcard.h"
+#include "pad/ps_pad.h"
 
 #include "tsf.h"
 u32 SKYDOOM_HEIGHT = 448;
@@ -56,24 +56,30 @@ extern char doomdir[35];
 extern sceMcTblGetDir saveentries[6];
 boolean useMemCard = false;
 
+Controller mainController;
+
 #define BUFFERSIZE (44100 * 5) + 400
 int
 main
 ( int		argc,
   char**	argv ) 
 { 
-    InitializeSystem(0, SKYDOOM_WIDTH, SKYDOOM_HEIGHT, GS_PSM_24);
+
+    ManagerInfo info;
+
+    memset(&info, 0, sizeof(ManagerInfo));
+
+    info.doublebuffered = true;
+    info.zenable = false;
+    info.width = SKYDOOM_WIDTH;
+    info.height = SKYDOOM_HEIGHT;
+    info.psm = GS_PSM_24;
+    info.drawBufferSize = 1 << 8;
+
+    InitializeSystem(&info);
     I_InitGraphics();
     int ret;
-    printf("kicking IRXs\n");
-    ret = SifLoadModule("cdrom0:\\LIBSD.IRX", 0, NULL);
-    printf("libsd loadmodule %d\n", ret);
-
-    printf("loading audsrv\n");
-    ret = SifLoadModule("cdrom0:\\AUDSRVX.IRX", 0, NULL);
-    printf("audsrv loadmodule %d\n", ret);
-
-    LoadMCMANModules();
+    LoadMCMANModules(); 
 
     if (mcInit(1) < 0)
     {
@@ -108,11 +114,7 @@ main
         }
     }
 
-    DEBUGLOG("here");
-
     ret = audsrv_init();
-
-    DEBUGLOG("here");
 
     if (ret < 0)
     {
@@ -154,6 +156,8 @@ main
     gTsfInstance = tsf_load_memory(gzsf2, sf2Size);
 
     tsf_set_output(gTsfInstance, TSF_MONO, 22050, 0.0f);
+
+    InitializeController(&mainController, 0, 0);
 
     myargc = argc; 
     myargv = argv; 

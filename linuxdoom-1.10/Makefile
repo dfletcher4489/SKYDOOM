@@ -3,7 +3,8 @@ OBJS_DIR := ./objs
 SRC_DIR := ./ps2
 TARGET_DIR := ./bin
 WIN_DIR ?= $(PS2_ISO_WIN_DIR)
-PS2_LIB_DIR := ./inc
+PS2_LIB_DIR := ./third_party/ps2lib/
+PS2_LIB_DIR_HEADERS := $(PS2_LIB_DIR)/inc/
 AUDSRVX := ./audsrvx
 AUDSRVX_EE := $(AUDSRVX)/ee/audsrvx/
 AUDSRVX_IOP := $(AUDSRVX)/iop/audsrvx/
@@ -25,8 +26,8 @@ EE_LIBS= -lps2 -ldma -lgraph -ldraw -lkernel -lpacket -lpad -lcdvd -lpng -lz -lu
 
 LOG_LEVEL?=3
 
-EE_CFLAGS += -DTML_STATIC -DTSF_STATIC -DTSF_IMPLEMENTATION -DTML_IMPLEMENTATION -DPS_LOG_LVL=$(LOG_LEVEL) -Wall -Wno-char-subscripts --std=gnu99 -I$(PS2_LIB_DIR) -I$(AUDSRVX_EE)/include/
-EE_LDFLAGS = -L./lib -L$(AUDSRVX_LIB) -L$(PS2SDK)/ee/common/lib -L$(PS2SDK)/ee/lib -L$(PS2SDK)/ports/lib 
+EE_CFLAGS += -DTML_STATIC -DTSF_STATIC -DTSF_IMPLEMENTATION -DTML_IMPLEMENTATION -DPS_LOG_LVL=$(LOG_LEVEL) -Wall -Wno-char-subscripts --std=gnu99 -I$(PS2_LIB_DIR_HEADERS) -I$(AUDSRVX_EE)/include/
+EE_LDFLAGS = -L$(PS2_LIB_DIR)/bin -L$(AUDSRVX_LIB) -L$(PS2SDK)/ee/common/lib -L$(PS2SDK)/ee/lib -L$(PS2SDK)/ports/lib 
 
 ISO_TGT=doom.iso
 
@@ -38,6 +39,7 @@ include $(PS2SDK)/samples/Makefile.pref
 all: compile disc update_win
 
 compile:
+	make archive -C $(PS2_LIB_DIR)
 	make all -C $(AUDSRVX_IOP)
 	make all -C $(AUDSRVX_EE)
 	make
@@ -59,6 +61,7 @@ irx:
 	mv $(IOP_MOD) "$(IRX_DIR)"
 
 clean:
+	make clean -C $(PS2_LIB_DIR)
 	make clean -C $(AUDSRVX_EE)
 	make clean -C $(AUDSRVX_IOP)
 	rm -rf $(ISO_TGT) $(TARGET_DIR)/$(EE_BIN) $(EE_OBJS)

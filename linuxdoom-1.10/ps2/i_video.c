@@ -35,7 +35,7 @@ static const char
 
 #include "doomstat.h"
 #include "i_system.h"
-#include "v_video.h"
+//#include "v_video.h"
 #include "m_argv.h"
 #include "d_main.h"
 #include "z_zone.h"
@@ -44,7 +44,6 @@ static const char
 // #include <draw2d.h>
 // #include <draw3d.h>
 #include <draw_primitives.h>
-// #include <draw_types.h>
 #include <gif_tags.h>
 #include "pad/ps_pad.h"
 #include "pipelines/ps_pipelineinternal.h"
@@ -62,6 +61,15 @@ static const char
 #include "gs/ps_gs.h"
 #include "gamemanager/ps_manager.h"
 #include "system/ps_timer.h"
+#include "graphics/ps_drawing.h"
+
+extern	byte*		screens[5];
+
+extern  int	dirtybox[4];
+
+extern	byte	gammatable[5][256];
+extern	int	usegamma;
+
 
 extern u32 SKYDOOM_HEIGHT;
 extern u32 SKYDOOM_WIDTH;
@@ -72,6 +80,8 @@ u32 SKYDOOM_WIDTH_HALF;
 // Fake mouse handling.
 // This cannot work properly w/o DGA.
 // Needs an invisible mouse cursor at least.
+
+extern Controller mainController;
 
 Texture *image;
 
@@ -97,15 +107,19 @@ static u32 lower = 50;
 static u32 upper = 200;
 void UpdatePad()
 {
-	s32 state = padGetState(port, 0);
-	event_t event;
-	if (state == PAD_STATE_DISCONN)
-	{
-		ERRORLOG("Pad(%d, %d) is disconnected", port, slot);
-		return;
-	}
+	int state = GetPadWhenReady(&mainController);
 
-	state = padRead(port, 0, &buttons);
+    if (state < 0)
+    {
+        ERRORLOG("Pad(%d, %d) is disconnected", mainController.port, mainController.slot);
+        return;
+    }
+
+    state = ReadPad(&mainController);
+
+	buttons = mainController.buttons;
+
+	event_t event;
 
 	if (state != 0)
 	{
@@ -299,8 +313,12 @@ unsigned char *pixels;
 //
 // I_FinishUpdate
 //
+
+
 #include <graph.h>
 #include "i_sound.h"
+#include "textures/ps_font.h"
+
 void I_FinishUpdate(void)
 {
 	byte *in = screens[0];
@@ -311,21 +329,38 @@ void I_FinishUpdate(void)
 		int inColor3 = in[i + 2];
 		int inColor4 = in[i + 3];
 
-		int index1 = i * 4;
-		int index2 = index1 + 4;
-		int index3 = index1 + 8;
-		int index4 = index1 + 12;
+		int index1 = i * 3;
+		int index2 = index1 + 3;
+		int index3 = index1 + 6;
+		int index4 = index1 + 9;
 
-		memcpy(&pixels[index1], &(colors[inColor1].r), 3);
-		memcpy(&pixels[index2], &(colors[inColor2].r), 3);
-		memcpy(&pixels[index3], &(colors[inColor3].r), 3);
-		memcpy(&pixels[index4], &(colors[inColor4].r), 3);
+		
+		pixels[index1 + 0] = colors[inColor1].r;
+		pixels[index1 + 1] = colors[inColor1].g;
+		pixels[index1 + 2] = colors[inColor1].b;
+		//pixels[index1 + 3] = 0xFF;
+
+		pixels[index2 + 0] = colors[inColor2].r;
+		pixels[index2 + 1] = colors[inColor2].g;
+		pixels[index2 + 2] = colors[inColor2].b;
+		//pixels[index2 + 3] = 0xFF;
+
+		pixels[index3 + 0] = colors[inColor3].r;
+		pixels[index3 + 1] = colors[inColor3].g;
+		pixels[index3 + 2] = colors[inColor3].b;
+		//pixels[index3 + 3] = 0xFF;
+
+		pixels[index4 + 0] = colors[inColor4].r;
+		pixels[index4 + 1] = colors[inColor4].g;
+		pixels[index4 + 2] = colors[inColor4].b;
+		//pixels[index4 + 3] = 0xFF;
 	}
 
-	ClearScreen(g_Manager.targetBack, g_Manager.gs_context, 0x00, 0xFF, 0x00, 0x00);
+	ClearScreen(g_Manager.targetBack, g_Manager.gs_context, 0xFF, 0xFF, 0x00, 0x00);
 	DrawFullScreenQuad(SKYDOOM_HEIGHT_HALF, SKYDOOM_WIDTH_HALF, image);
-	EndFrame(0);
-	graph_start_vsync();
+	StitchDrawBuffer(true);
+    DispatchDrawBuffers();
+	EndFrame(1);
 	while (!(graph_check_vsync()))
 	{
 		I_UpdateMusic();
@@ -376,45 +411,20 @@ void I_SetPalette(byte *palette)
 
 void DrawFullScreenQuad(int height, int width, Texture *_image)
 {
-	UploadTextureToVRAM(_image);
-	qword_t *ret = InitializeDMAObject();
+	BeginCommand();
+	BindTexture(_image, true);
+	DepthTest(true, 1);
+    SourceAlphaTest(ATEST_KEEP_FRAMEBUFFER, ATEST_METHOD_NOTEQUAL, 0);
+	PrimitiveType(GS_SET_PRIM(PRIM_TRIANGLE_STRIP, PRIM_SHADE_GOURAUD, DRAW_ENABLE, DRAW_DISABLE, DRAW_DISABLE, DRAW_DISABLE, PRIM_MAP_UV, g_Manager.gs_context, PRIM_UNFIXED));
 
-	// u64 reglist = ((u64)DRAW_UV_REGLIST) << 8 | DRAW_UV_REGLIST;
-
-	qword_t *dcode_tag_vif1 = ret;
-	ret++;
-
-	u8 red, green, blue, alpha;
-
-	red = green = blue = 0xFF;
-
-	alpha = 0x80;
-
-	ret = CreateDMATag(ret, DMA_CNT, 3, 0, 0, 0);
-
-	ret = CreateDirectTag(ret, 2, 0);
-
-	ret = CreateGSSetTag(ret, 1, 1, GIF_FLG_PACKED, 1, GIF_REG_AD);
-
-	ret = SetupZTestGS(ret, 1, 0, 0x80, ATEST_METHOD_NOTEQUAL, ATEST_KEEP_FRAMEBUFFER, 0, 0, g_Manager.gs_context);
-
-	qword_t *dmatag = ret;
-	ret++;
-	qword_t *direct = ret;
-
-	ret++;
-	PACK_GIFTAG(ret, GIF_SET_TAG(1, 1, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
-	ret++;
-
-	PACK_GIFTAG(ret, GS_SET_PRIM(PRIM_TRIANGLE_STRIP, PRIM_SHADE_GOURAUD, DRAW_ENABLE, DRAW_DISABLE, DRAW_DISABLE, DRAW_DISABLE, PRIM_MAP_UV, g_Manager.gs_context, PRIM_UNFIXED), GS_REG_PRIM);
-	ret++;
-
+	
 	u32 regCount = 3;
 
 	u64 regFlag = ((u64)GIF_REG_RGBAQ) << 0 | ((u64)GIF_REG_UV) << 4 | ((u64)GIF_REG_XYZ2) << 8;
 
-	PACK_GIFTAG(ret, GIF_SET_TAG(4, 1, 0, 0, GIF_FLG_REGLIST, regCount), regFlag);
-	ret++;
+	SetRegSizeAndType(3, regFlag);
+
+	DrawCountDirectRegList(4);
 
 	int u0 = 0;
 	int v0 = 0;
@@ -422,33 +432,21 @@ void DrawFullScreenQuad(int height, int width, Texture *_image)
 	int u1 = ((_image->width) << 4);
 	int v1 = ((_image->height) << 4);
 
-	PACK_GIFTAG(ret, GIF_SET_RGBAQ(red, green, blue, alpha, 1), GIF_SET_UV(u0, v0));
-	ret++;
+	u8 red, green, blue, alpha;
 
-	PACK_GIFTAG(ret, GIF_SET_XYZ(CreateGSScreenCoordinates(width, -), CreateGSScreenCoordinates(height, -), 0xFFFFFF), GIF_SET_RGBAQ(red, green, blue, alpha, 1));
-	ret++;
-	PACK_GIFTAG(ret, GIF_SET_UV(u0, v1), GIF_SET_XYZ(CreateGSScreenCoordinates(width, -), CreateGSScreenCoordinates(height, +), 0xFFFFFF));
-	ret++;
-	PACK_GIFTAG(ret, GIF_SET_RGBAQ(red, green, blue, alpha, 1), GIF_SET_UV(u1, v0));
+    red = green = blue = 0xFF;
 
-	ret++;
-	PACK_GIFTAG(ret, GIF_SET_XYZ(CreateGSScreenCoordinates(width, +), CreateGSScreenCoordinates(height, -), 0xFFFFFF), GIF_SET_RGBAQ(red, green, blue, alpha, 1));
-	ret++;
-	PACK_GIFTAG(ret, GIF_SET_UV(u1, v1), GIF_SET_XYZ(CreateGSScreenCoordinates(width, +), CreateGSScreenCoordinates(height, +), 0xFFFFFF));
+    alpha = 0x80;
 
-	ret++;
+	DrawPairU64(GIF_SET_RGBAQ(red, green, blue, alpha, 1), GIF_SET_UV(u0, v0));
+	DrawPairU64(GIF_SET_XYZ(CreateGSScreenCoordinates(width, -), CreateGSScreenCoordinates(height, -), 0xFFFFFF), GIF_SET_RGBAQ(red, green, blue, alpha, 1));
+	DrawPairU64(GIF_SET_UV(u0, v1), GIF_SET_XYZ(CreateGSScreenCoordinates(width, -), CreateGSScreenCoordinates(height, +), 0xFFFFFF));
+	DrawPairU64(GIF_SET_RGBAQ(red, green, blue, alpha, 1), GIF_SET_UV(u1, v0));
+	DrawPairU64(GIF_SET_XYZ(CreateGSScreenCoordinates(width, +), CreateGSScreenCoordinates(height, -), 0xFFFFFF), GIF_SET_RGBAQ(red, green, blue, alpha, 1));
+	DrawPairU64(GIF_SET_UV(u1, v1), GIF_SET_XYZ(CreateGSScreenCoordinates(width, +), CreateGSScreenCoordinates(height, +), 0xFFFFFF));
 
-	CreateDMATag(dmatag, DMA_END, ret - dmatag - 1, 0, 0, 0);
 
-	CreateDirectTag(direct, ret - direct - 1, 1);
-
-	u32 sizeOfPipeline = ret - dcode_tag_vif1 - 1;
-
-	CreateDCODEDmaTransferTag(dcode_tag_vif1, DMA_CHANNEL_VIF1, 0, 1, sizeOfPipeline);
-
-	CreateDCODETag(ret, DMA_DCODE_END);
-
-	SubmitDMABuffersAsPipeline(ret, NULL);
+	SubmitCommand(false);
 }
 
 void I_InitGraphics(void)
@@ -460,24 +458,19 @@ void I_InitGraphics(void)
 
 	image->width = SCREENWIDTH;
 	image->height = SCREENHEIGHT;
-	image->psm = GS_PSM_32;
+	image->psm = GS_PSM_24;
+	image->mipLevels = 0;
+	image->mipMaps = NULL;
+	image->name[0] = 'M';
+
+	pixels = image->pixels = (u8 *)malloc(320 * 200 * 3);
+	image->clut_buffer = NULL;
 
 	InitTextureResources(image, 0);
 
-	image->texbuf.info.function = TEXTURE_FUNCTION_DECAL;
-	image->lod.mag_filter = LOD_MAG_LINEAR;
-	image->lod.min_filter = LOD_MIN_LINEAR;
+	
 
-	image->lod.l = 0;
-	image->lod.k = 0.0f;
-	image->lod.calculation = LOD_USE_K;
-	image->lod.max_level = 0;
-
-	image->pixels = (u8 *)malloc(320 * 200 * 4);
-
-	// AddToManagerTexList(&g_Manager, image);
-
-	pixels = image->pixels;
+	AddToManagerTexList(&g_Manager, image);
 
 	timestart = timeend = getTicks(g_Manager.timer);
 }

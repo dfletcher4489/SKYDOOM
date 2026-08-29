@@ -42,16 +42,15 @@ extern char doomdir[35];
 extern sceMcTblGetDir saveentries[6];
 
 //pad stuff
-extern u32 port;
-extern u32 slot;
-static u32 old_pad = 0;
 
+static u32 old_pad = 0;
+extern Controller mainController;
 
 void M_LauncherInit(void)
 {
     runninglauncher = true;
 
-    background = AddAndCreateTextureFromBuffer(backgroundpng, sizeof(backgroundpng), "BACKGROUND", READ_PNG, 0, 0, TEX_ADDRESS_CLAMP, 1); 
+    background = AddAndCreateTextureFromBuffer(backgroundpng, sizeof(backgroundpng), "BACKGROUND", READ_PNG, 0, 0, TEX_ADDRESS_CLAMP); 
     //AddAndCreateTexture("BACKGROUND.PNG", READ_PNG, 0, 0, TEX_ADDRESS_CLAMP, 1);
 
     fontimage = CreateFontStructFromBuffer("DEFAULT", DefaultFontbmp, DefaultFontDatadat, READ_BMP, sizeof(DefaultFontbmp), sizeof(DefaultFontDatadat)); 
@@ -73,15 +72,17 @@ static void UpdatePad()
     u32 new_pad;
     u32 currData;
 
-    s32 state = padGetState(port, slot);
+    int state = GetPadWhenReady(&mainController);
 
-    if (state == PAD_STATE_DISCONN)
+    if (state < 0)
     {
-        ERRORLOG("Pad(%d, %d) is disconnected", port, slot);
+        ERRORLOG("Pad(%d, %d) is disconnected", mainController.port, mainController.slot);
         return;
     }
 
-    state = padRead(port, slot, &buttons);
+    state = ReadPad(&mainController);
+
+    buttons = mainController.buttons;
 
     currData = 0xffff ^ buttons.btns;
 
@@ -154,21 +155,25 @@ void M_LauncherRun(void)
     while (runninglauncher)
     {
         UpdatePad();
-        ClearScreen(g_Manager.targetBack, g_Manager.gs_context, 0, 0, 0, 255);
+        ClearScreen(g_Manager.targetBack, g_Manager.gs_context, 0xFF, 0, 0, 255);
         DrawFullScreenQuad(halfh, halfw, background);
-        PrintText(fontimage, wadlist[wadselect], 50, 200);
+        PrintText(fontimage, wadlist[wadselect], 50, 200, LEFT);
+        StitchDrawBuffer(true);
+        DispatchDrawBuffers();
         EndFrame(1);
     }
 
     ClearScreen(g_Manager.targetBack, g_Manager.gs_context, 0, 0, 0, 255);
+    StitchDrawBuffer(true);
+    DispatchDrawBuffers();
     EndFrame(1);
 }
 
 void M_LauncherDeinit(void)
 {
     //ClearManagerTexList(&g_Manager);
-    CleanFontStruct(fontimage);
-    CleanTextureStruct(background);
+  //  CleanFontStruct(fontimage);
+   // CleanTextureStruct(background);
     //ClearManagerTexList(&g_Manager);
     background = NULL;
     fontimage = NULL;

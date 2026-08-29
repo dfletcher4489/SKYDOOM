@@ -79,7 +79,6 @@ static const char rcsid[] = "$Id: d_main.c,v 1.8 1997/02/03 22:45:09 b1 Exp $";
 #include "d_main.h"
 #include "log/ps_log.h"
 #include "io/ps_file_io.h"
-#include "math/ps_misc.h"
 //
 // D-DoomLoop()
 // Not a globally visible function,
