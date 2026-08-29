@@ -42,7 +42,7 @@ rcsid[] = "$Id: i_main.c,v 1.4 1997/02/03 22:45:10 b1 Exp $";
 #include "io/ps_memcard.h"
 
 #include "tsf.h"
-u32 SKYDOOM_HEIGHT = 480;
+u32 SKYDOOM_HEIGHT = 448;
 u32 SKYDOOM_WIDTH = 640;
 
 tsf* gTsfInstance = NULL;
@@ -108,7 +108,11 @@ main
         }
     }
 
+    DEBUGLOG("here");
+
     ret = audsrv_init();
+
+    DEBUGLOG("here");
 
     if (ret < 0)
     {

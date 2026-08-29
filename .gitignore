@@ -6,5 +6,15 @@ linuxdoom-1.10/audsrvx/ee/audsrvx/lib/
 linuxdoom-1.10/audsrvx/ee/audsrvx/obj/
 linuxdoom-1.10/*.iso
 linuxdoom-1.10/*.wad
+linuxdoom-1.10/wads/
 linuxdoom-1.10/bin/
 linuxdoom-1.10/.vscode/
+linuxdoom-1.10/*.sf2
+linuxdoom-1.10/*.lmp
+linuxdoom-1.10/*.bmp
+linuxdoom-1.10/*.png
+linuxdoom-1.10/*.py
+linuxdoom-1.10/*.dat
+linuxdoom-1.10/*/sf2.h
+linuxdoom-1.10/sf2.h
+linuxdoom-1.10/audsrvx/iop/audsrvx/src/build-*
