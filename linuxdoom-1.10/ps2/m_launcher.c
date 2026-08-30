@@ -156,7 +156,7 @@ void M_LauncherRun(void)
     {
         UpdatePad();
         ClearScreen(g_Manager.targetBack, g_Manager.gs_context, 0xFF, 0, 0, 255);
-        DrawFullScreenQuad(halfh, halfw, background);
+        DrawFullScreenQuad(halfh, halfw, background->width, background->height, background);
         PrintText(fontimage, wadlist[wadselect], 50, 200, LEFT);
         StitchDrawBuffer(true);
         DispatchDrawBuffers();

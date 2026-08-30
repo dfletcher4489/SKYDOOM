@@ -63,27 +63,30 @@ static const char
 #include "system/ps_timer.h"
 #include "graphics/ps_drawing.h"
 
+typedef struct ColorPaletted
+{
+	u8 r;
+	u8 g;
+	u8 b;
+	u8 a;
+} ColorPaletted;
+
 extern	byte*		screens[5];
-
 extern  int	dirtybox[4];
-
 extern	byte	gammatable[5][256];
 extern	int	usegamma;
-
-
 extern u32 SKYDOOM_HEIGHT;
 extern u32 SKYDOOM_WIDTH;
+extern Controller mainController;
 
+static ColorPaletted colors[256];
 u32 SKYDOOM_HEIGHT_HALF;
 u32 SKYDOOM_WIDTH_HALF;
+Texture image;
 
 // Fake mouse handling.
 // This cannot work properly w/o DGA.
 // Needs an invisible mouse cursor at least.
-
-extern Controller mainController;
-
-Texture *image;
 
 float timestart, timeend;
 
@@ -102,7 +105,6 @@ static u8 JoyRHPv = 127;
 static u8 JoyLVPv = 127;
 static u8 JoyLHPv = 127;
 static u8 JoyRVPv = 127;
-// static u8 framebuffer[320*240*4];
 static u32 lower = 50;
 static u32 upper = 200;
 void UpdatePad()
@@ -308,56 +310,18 @@ void I_UpdateNoBlit(void)
 {
 	// what is this?
 }
-static Color colors[256];
-unsigned char *pixels;
+
 //
 // I_FinishUpdate
 //
-
-
 #include <graph.h>
 #include "i_sound.h"
-#include "textures/ps_font.h"
 
 void I_FinishUpdate(void)
 {
-	byte *in = screens[0];
-	for (int i = 0; i < SCREENHEIGHT * SCREENWIDTH; i += 4)
-	{
-		int inColor1 = in[i];
-		int inColor2 = in[i + 1];
-		int inColor3 = in[i + 2];
-		int inColor4 = in[i + 3];
-
-		int index1 = i * 3;
-		int index2 = index1 + 3;
-		int index3 = index1 + 6;
-		int index4 = index1 + 9;
-
-		
-		pixels[index1 + 0] = colors[inColor1].r;
-		pixels[index1 + 1] = colors[inColor1].g;
-		pixels[index1 + 2] = colors[inColor1].b;
-		//pixels[index1 + 3] = 0xFF;
-
-		pixels[index2 + 0] = colors[inColor2].r;
-		pixels[index2 + 1] = colors[inColor2].g;
-		pixels[index2 + 2] = colors[inColor2].b;
-		//pixels[index2 + 3] = 0xFF;
-
-		pixels[index3 + 0] = colors[inColor3].r;
-		pixels[index3 + 1] = colors[inColor3].g;
-		pixels[index3 + 2] = colors[inColor3].b;
-		//pixels[index3 + 3] = 0xFF;
-
-		pixels[index4 + 0] = colors[inColor4].r;
-		pixels[index4 + 1] = colors[inColor4].g;
-		pixels[index4 + 2] = colors[inColor4].b;
-		//pixels[index4 + 3] = 0xFF;
-	}
-
+	image.pixels = screens[0];
 	ClearScreen(g_Manager.targetBack, g_Manager.gs_context, 0xFF, 0xFF, 0x00, 0x00);
-	DrawFullScreenQuad(SKYDOOM_HEIGHT_HALF, SKYDOOM_WIDTH_HALF, image);
+	DrawFullScreenQuad(SKYDOOM_HEIGHT_HALF, SKYDOOM_WIDTH_HALF, 512, 512, &image);
 	StitchDrawBuffer(true);
     DispatchDrawBuffers();
 	EndFrame(1);
@@ -390,26 +354,22 @@ void I_SetPalette(byte *palette)
 {
 	int i;
 
-	// set the X colormap entries
-
 	byte *clut_palette = palette;
 
 	for (i = 0; i < 256; i++)
 	{
-		/*
-		DEBUGLOG("%d %d %d", gammatable[usegamma][*clut_palette],
-		gammatable[usegamma][*clut_palette+1], gammatable[usegamma][*clut_palette+2]);
-		*/
+		int swizzledIndex = (i & 231) + ((i & 8) << 1) + ((i & 16) >> 1);
 		int c = gammatable[usegamma][*clut_palette++];
-		colors[i].r = c;
+		colors[swizzledIndex].r = c;
 		c = gammatable[usegamma][*clut_palette++];
-		colors[i].g = c;
+		colors[swizzledIndex].g = c;
 		c = gammatable[usegamma][*clut_palette++];
-		colors[i].b = c;
+		colors[swizzledIndex].b = c;
+		colors[i].a = 0xFF;
 	}
 }
 
-void DrawFullScreenQuad(int height, int width, Texture *_image)
+void DrawFullScreenQuad(int screenHeight, int screenWidth, int drawableWidth, int drawableHeight, Texture *_image)
 {
 	BeginCommand();
 	BindTexture(_image, true);
@@ -429,8 +389,8 @@ void DrawFullScreenQuad(int height, int width, Texture *_image)
 	int u0 = 0;
 	int v0 = 0;
 
-	int u1 = ((_image->width) << 4);
-	int v1 = ((_image->height) << 4);
+	int u1 = ((float)_image->width / (float)drawableWidth ) * (drawableWidth << 4);
+	int v1 = ((float)_image->height / (float)drawableHeight) * (drawableHeight << 4);
 
 	u8 red, green, blue, alpha;
 
@@ -439,11 +399,11 @@ void DrawFullScreenQuad(int height, int width, Texture *_image)
     alpha = 0x80;
 
 	DrawPairU64(GIF_SET_RGBAQ(red, green, blue, alpha, 1), GIF_SET_UV(u0, v0));
-	DrawPairU64(GIF_SET_XYZ(CreateGSScreenCoordinates(width, -), CreateGSScreenCoordinates(height, -), 0xFFFFFF), GIF_SET_RGBAQ(red, green, blue, alpha, 1));
-	DrawPairU64(GIF_SET_UV(u0, v1), GIF_SET_XYZ(CreateGSScreenCoordinates(width, -), CreateGSScreenCoordinates(height, +), 0xFFFFFF));
+	DrawPairU64(GIF_SET_XYZ(CreateGSScreenCoordinates(screenWidth, -), CreateGSScreenCoordinates(screenHeight, -), 0xFFFFFF), GIF_SET_RGBAQ(red, green, blue, alpha, 1));
+	DrawPairU64(GIF_SET_UV(u0, v1), GIF_SET_XYZ(CreateGSScreenCoordinates(screenWidth, -), CreateGSScreenCoordinates(screenHeight, +), 0xFFFFFF));
 	DrawPairU64(GIF_SET_RGBAQ(red, green, blue, alpha, 1), GIF_SET_UV(u1, v0));
-	DrawPairU64(GIF_SET_XYZ(CreateGSScreenCoordinates(width, +), CreateGSScreenCoordinates(height, -), 0xFFFFFF), GIF_SET_RGBAQ(red, green, blue, alpha, 1));
-	DrawPairU64(GIF_SET_UV(u1, v1), GIF_SET_XYZ(CreateGSScreenCoordinates(width, +), CreateGSScreenCoordinates(height, +), 0xFFFFFF));
+	DrawPairU64(GIF_SET_XYZ(CreateGSScreenCoordinates(screenWidth, +), CreateGSScreenCoordinates(screenHeight, -), 0xFFFFFF), GIF_SET_RGBAQ(red, green, blue, alpha, 1));
+	DrawPairU64(GIF_SET_UV(u1, v1), GIF_SET_XYZ(CreateGSScreenCoordinates(screenWidth, +), CreateGSScreenCoordinates(screenHeight, +), 0xFFFFFF));
 
 
 	SubmitCommand(false);
@@ -454,23 +414,34 @@ void I_InitGraphics(void)
 	SKYDOOM_HEIGHT_HALF = SKYDOOM_HEIGHT >> 1;
 	SKYDOOM_WIDTH_HALF = SKYDOOM_WIDTH >> 1;
 
-	image = (Texture *)malloc(sizeof(Texture));
+	image.width = SCREENWIDTH;
+	image.height = SCREENHEIGHT;
+	image.psm = GS_PSM_8;
+	image.mipLevels = 0;
+	image.mipMaps = NULL;
+	image.clut_buffer = (u8*)colors;
+	image.mipLevels = 0;
+    image.mipMaps = NULL;
+    image.mode = 0;
+    image.type = PS_TEX_MEMORY;
 
-	image->width = SCREENWIDTH;
-	image->height = SCREENHEIGHT;
-	image->psm = GS_PSM_24;
-	image->mipLevels = 0;
-	image->mipMaps = NULL;
-	image->name[0] = 'M';
+    if (image.psm == GS_PSM_8 || image.psm == GS_PSM_4)
+    {
+        CreateClutStructs(&image, GS_PSM_32);
+    }
 
-	pixels = image->pixels = (u8 *)malloc(320 * 200 * 3);
-	image->clut_buffer = NULL;
+    u32 components;
 
-	InitTextureResources(image, 0);
+    if (image.psm == GS_PSM_24)
+    {
+        components = TEXTURE_COMPONENTS_RGB;
+    } 
+    else 
+    {
+        components = TEXTURE_COMPONENTS_RGBA;
+    }
 
-	
-
-	AddToManagerTexList(&g_Manager, image);
+    CreateTexStructs(&image, 512, image.psm, components, TEXTURE_FUNCTION_MODULATE, 0);
 
 	timestart = timeend = getTicks(g_Manager.timer);
 }
