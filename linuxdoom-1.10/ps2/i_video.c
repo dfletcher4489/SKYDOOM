@@ -389,7 +389,7 @@ void DrawFullScreenQuad(int screenHeight, int screenWidth, int drawableWidth, in
 	int u0 = 0;
 	int v0 = 0;
 
-	int u1 = ((float)_image->width / (float)drawableWidth ) * (drawableWidth << 4);
+	int u1 = ((float)_image->width / (float)drawableWidth) * (drawableWidth << 4);
 	int v1 = ((float)_image->height / (float)drawableHeight) * (drawableHeight << 4);
 
 	u8 red, green, blue, alpha;
