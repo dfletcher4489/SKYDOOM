@@ -63,6 +63,9 @@ static const char
 #include "system/ps_timer.h"
 #include "graphics/ps_drawing.h"
 
+#define PS2_TEXTURE_SIZE_X 512
+#define PS2_TEXTURE_SIZE_Y (256)
+
 typedef struct ColorPaletted
 {
 	u8 r;
@@ -90,9 +93,6 @@ Texture image;
 
 float timestart, timeend;
 
-extern u32 port;
-extern u32 slot;
-extern char padBuf[256];
 static u32 old_pad = 0;
 static u32 new_pad;
 static u32 currData;
@@ -107,7 +107,7 @@ static u8 JoyLHPv = 127;
 static u8 JoyRVPv = 127;
 static u32 lower = 50;
 static u32 upper = 200;
-void UpdatePad()
+void I_UpdatePad()
 {
 	int state = GetPadWhenReady(&mainController);
 
@@ -119,17 +119,15 @@ void UpdatePad()
 
     state = ReadPad(&mainController);
 
-	buttons = mainController.buttons;
-
 	event_t event;
 
-	if (state != 0)
+	if (!state)
 	{
-		currData = 0xffff ^ buttons.btns;
+		currData = 0xffff ^ mainController.buttons.btns;
 
 		new_pad = currData & ~old_pad;
 
-		if (buttons.rjoy_h <= lower && JoyRHPv > lower)
+		if (mainController.buttons.rjoy_h <= lower && JoyRHPv > lower)
 		{
 			//DEBUGLOG("LOOK LEFT PRESSED %d %d",
 			//		 buttons.rjoy_h, JoyRHPv);
@@ -137,7 +135,7 @@ void UpdatePad()
 			event.data1 = KEY_LOOK_LEFT;
 			D_PostEvent(&event);
 		}
-		if (buttons.rjoy_h > lower && JoyRHPv <= lower)
+		if (mainController.buttons.rjoy_h > lower && JoyRHPv <= lower)
 		{
 			//DEBUGLOG("LOOK LEFT RELEASED %d %d",
 			//		 buttons.rjoy_h, JoyRHPv);
@@ -145,7 +143,7 @@ void UpdatePad()
 			event.data1 = KEY_LOOK_LEFT;
 			D_PostEvent(&event);
 		}
-		if (buttons.rjoy_h >= upper && JoyRHPv < upper)
+		if (mainController.buttons.rjoy_h >= upper && JoyRHPv < upper)
 		{
 			//DEBUGLOG("LOOK RIGHT PRESSED %d %d",
 			//		 buttons.rjoy_h, JoyRHPv);
@@ -153,7 +151,7 @@ void UpdatePad()
 			event.data1 = KEY_LOOK_RIGHT;
 			D_PostEvent(&event);
 		}
-		if (buttons.rjoy_h < upper && JoyRHPv >= upper)
+		if (mainController.buttons.rjoy_h < upper && JoyRHPv >= upper)
 		{
 			//DEBUGLOG("LOOK RIGHT RELEASED %d %d",
 			//		 buttons.rjoy_h, JoyRHPv);
@@ -162,7 +160,7 @@ void UpdatePad()
 			D_PostEvent(&event);
 		}
 
-		if (buttons.rjoy_v <= lower && JoyRVPv > lower)
+		if (mainController.buttons.rjoy_v <= lower && JoyRVPv > lower)
 		{
 			//DEBUGLOG("LOOK UP PRESSED %d %d",
 			//		 buttons.rjoy_v, JoyRVPv);
@@ -170,7 +168,7 @@ void UpdatePad()
 			event.data1 = KEY_LOOK_UP;
 			D_PostEvent(&event);
 		}
-		if (buttons.rjoy_v > lower && JoyRVPv <= lower)
+		if (mainController.buttons.rjoy_v > lower && JoyRVPv <= lower)
 		{
 			//DEBUGLOG("LOOK UP RELEASED %d %d",
 			//		 buttons.rjoy_h, JoyRVPv);
@@ -178,7 +176,7 @@ void UpdatePad()
 			event.data1 = KEY_LOOK_UP;
 			D_PostEvent(&event);
 		}
-		if (buttons.rjoy_v >= upper && JoyRVPv < upper)
+		if (mainController.buttons.rjoy_v >= upper && JoyRVPv < upper)
 		{
 			//DEBUGLOG("LOOK DOWN PRESSED %d %d",
 			//		 buttons.rjoy_v, JoyRVPv);
@@ -186,7 +184,7 @@ void UpdatePad()
 			event.data1 = KEY_LOOK_DOWN;
 			D_PostEvent(&event);
 		}
-		if (buttons.rjoy_v < upper && JoyRVPv >= upper)
+		if (mainController.buttons.rjoy_v < upper && JoyRVPv >= upper)
 		{
 			//DEBUGLOG("LOOK DOWN RELEASED %d %d",
 			//		 buttons.rjoy_v, JoyRVPv);
@@ -195,28 +193,28 @@ void UpdatePad()
 			D_PostEvent(&event);
 		}
 
-		if (buttons.ljoy_h <= lower && JoyLHPv > lower)
+		if (mainController.buttons.ljoy_h <= lower && JoyLHPv > lower)
 		{
 			//DEBUGLOG("LEFT PRESSED %d %d", buttons.ljoy_h, JoyLHPv);
 			event.type = ev_keydown;
 			event.data1 = KEY_MOVE_LEFT;
 			D_PostEvent(&event);
 		}
-		if (buttons.ljoy_h > lower && JoyLHPv <= lower)
+		if (mainController.buttons.ljoy_h > lower && JoyLHPv <= lower)
 		{
 			//DEBUGLOG("LEFT RELEASED %d %d", buttons.ljoy_h, JoyLHPv);
 			event.type = ev_keyup;
 			event.data1 = KEY_MOVE_LEFT;
 			D_PostEvent(&event);
 		}
-		if (buttons.ljoy_h >= upper && JoyLHPv < upper)
+		if (mainController.buttons.ljoy_h >= upper && JoyLHPv < upper)
 		{
 			//DEBUGLOG("RIGHT PRESSED %d %d", buttons.ljoy_h, JoyLHPv);
 			event.type = ev_keydown;
 			event.data1 = KEY_MOVE_RIGHT;
 			D_PostEvent(&event);
 		}
-		if (buttons.ljoy_h < upper && JoyLHPv >= upper)
+		if (mainController.buttons.ljoy_h < upper && JoyLHPv >= upper)
 		{
 			//DEBUGLOG("RIGHT RELEASED %d %d", buttons.ljoy_h, JoyLHPv);
 			event.type = ev_keyup;
@@ -224,28 +222,28 @@ void UpdatePad()
 			D_PostEvent(&event);
 		}
 
-		if (buttons.ljoy_v <= lower && JoyLVPv > lower)
+		if (mainController.buttons.ljoy_v <= lower && JoyLVPv > lower)
 		{
 			//DEBUGLOG("UP PRESSED %d %d", buttons.ljoy_v, JoyLVPv);
 			event.type = ev_keydown;
 			event.data1 = KEY_UPARROW;
 			D_PostEvent(&event);
 		}
-		if (buttons.ljoy_v > lower && JoyLVPv <= lower)
+		if (mainController.buttons.ljoy_v > lower && JoyLVPv <= lower)
 		{
 			//DEBUGLOG("UP RELEASED %d %d", buttons.ljoy_v, JoyLVPv);
 			event.type = ev_keyup;
 			event.data1 = KEY_UPARROW;
 			D_PostEvent(&event);
 		}
-		if (buttons.ljoy_v >= upper && JoyLVPv < upper)
+		if (mainController.buttons.ljoy_v >= upper && JoyLVPv < upper)
 		{
 			//DEBUGLOG("DOWN PRESSED %d %d", buttons.ljoy_v, JoyLVPv);
 			event.type = ev_keydown;
 			event.data1 = KEY_DOWNARROW;
 			D_PostEvent(&event);
 		}
-		if (buttons.ljoy_v < upper && JoyLVPv >= upper)
+		if (mainController.buttons.ljoy_v < upper && JoyLVPv >= upper)
 		{
 			//DEBUGLOG("DOWN RELEASED %d %d", buttons.ljoy_v, JoyLVPv);
 			event.type = ev_keyup;
@@ -253,10 +251,10 @@ void UpdatePad()
 			D_PostEvent(&event);
 		}
 
-		JoyRVPv = buttons.rjoy_v;
-		JoyRHPv = buttons.rjoy_h;
-		JoyLHPv = buttons.ljoy_h;
-		JoyLVPv = buttons.ljoy_v;
+		JoyRVPv = mainController.buttons.rjoy_v;
+		JoyRHPv = mainController.buttons.rjoy_h;
+		JoyLHPv = mainController.buttons.ljoy_h;
+		JoyLVPv = mainController.buttons.ljoy_v;
 		//	DEBUGLOG("%d %d", buttons.ljoy_v, JoyLVPv);
 		//	DEBUGLOG("%d %d", buttons.ljoy_h, JoyLHPv);
 		//	DEBUGLOG("%d %d", buttons.rjoy_h, JoyRHPv);
@@ -300,7 +298,7 @@ void I_ShutdownGraphics(void)
 //
 void I_StartTic(void)
 {
-	UpdatePad();
+	I_UpdatePad();
 }
 
 //
@@ -321,7 +319,7 @@ void I_FinishUpdate(void)
 {
 	image.pixels = screens[0];
 	ClearScreen(g_Manager.targetBack, g_Manager.gs_context, 0xFF, 0xFF, 0x00, 0x00);
-	DrawFullScreenQuad(SKYDOOM_HEIGHT_HALF, SKYDOOM_WIDTH_HALF, 512, 512, &image);
+	DrawFullScreenQuad(SKYDOOM_HEIGHT_HALF, SKYDOOM_WIDTH_HALF, &image);
 	StitchDrawBuffer(true);
     DispatchDrawBuffers();
 	EndFrame(1);
@@ -365,18 +363,17 @@ void I_SetPalette(byte *palette)
 		colors[swizzledIndex].g = c;
 		c = gammatable[usegamma][*clut_palette++];
 		colors[swizzledIndex].b = c;
-		colors[i].a = 0xFF;
+		colors[swizzledIndex].a = 0x80;
 	}
 }
 
-void DrawFullScreenQuad(int screenHeight, int screenWidth, int drawableWidth, int drawableHeight, Texture *_image)
+void DrawFullScreenQuad(int screenHeight, int screenWidth, Texture *_image)
 {
 	BeginCommand();
 	BindTexture(_image, true);
 	DepthTest(true, 1);
     SourceAlphaTest(ATEST_KEEP_FRAMEBUFFER, ATEST_METHOD_NOTEQUAL, 0);
 	PrimitiveType(GS_SET_PRIM(PRIM_TRIANGLE_STRIP, PRIM_SHADE_GOURAUD, DRAW_ENABLE, DRAW_DISABLE, DRAW_DISABLE, DRAW_DISABLE, PRIM_MAP_UV, g_Manager.gs_context, PRIM_UNFIXED));
-
 	
 	u32 regCount = 3;
 
@@ -389,8 +386,8 @@ void DrawFullScreenQuad(int screenHeight, int screenWidth, int drawableWidth, in
 	int u0 = 0;
 	int v0 = 0;
 
-	int u1 = ((float)_image->width / (float)drawableWidth) * (drawableWidth << 4);
-	int v1 = ((float)_image->height / (float)drawableHeight) * (drawableHeight << 4);
+	int u1 = (_image->width  << 4);
+	int v1 = (_image->height << 4);
 
 	u8 red, green, blue, alpha;
 
@@ -404,7 +401,6 @@ void DrawFullScreenQuad(int screenHeight, int screenWidth, int drawableWidth, in
 	DrawPairU64(GIF_SET_RGBAQ(red, green, blue, alpha, 1), GIF_SET_UV(u1, v0));
 	DrawPairU64(GIF_SET_XYZ(CreateGSScreenCoordinates(screenWidth, +), CreateGSScreenCoordinates(screenHeight, -), 0xFFFFFF), GIF_SET_RGBAQ(red, green, blue, alpha, 1));
 	DrawPairU64(GIF_SET_UV(u1, v1), GIF_SET_XYZ(CreateGSScreenCoordinates(screenWidth, +), CreateGSScreenCoordinates(screenHeight, +), 0xFFFFFF));
-
 
 	SubmitCommand(false);
 }
@@ -425,23 +421,16 @@ void I_InitGraphics(void)
     image.mode = 0;
     image.type = PS_TEX_MEMORY;
 
-    if (image.psm == GS_PSM_8 || image.psm == GS_PSM_4)
-    {
-        CreateClutStructs(&image, GS_PSM_32);
-    }
+    CreateClutStructs(&image, GS_PSM_32);
 
-    u32 components;
+    u32 components = TEXTURE_COMPONENTS_RGBA;
 
     if (image.psm == GS_PSM_24)
     {
         components = TEXTURE_COMPONENTS_RGB;
     } 
-    else 
-    {
-        components = TEXTURE_COMPONENTS_RGBA;
-    }
 
-    CreateTexStructs(&image, 512, image.psm, components, TEXTURE_FUNCTION_MODULATE, 0);
+    CreateTexStructs(&image, PS2_TEXTURE_SIZE_X, PS2_TEXTURE_SIZE_Y, image.psm, components, TEXTURE_FUNCTION_MODULATE, PS_FILTER_BILINEAR);
 
 	timestart = timeend = getTicks(g_Manager.timer);
 }

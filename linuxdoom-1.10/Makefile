@@ -14,7 +14,7 @@ AUDSRVX_IRX := $(AUDSRVX_IOP)/irx/
 OBJEXT    := o
 CEXT      := c
 
-EE_BIN = doom_00012.elf
+EE_BIN = doom_000.12
 IOP_MOD = sio2man.irx padman.irx libsd.irx mcman.irx mcserv.irx
 
 EE_SRC_C += $(shell find $(SRC_DIR) -type f -name *.$(CEXT))
@@ -34,7 +34,7 @@ ISO_TGT=doom.iso
 include ./Makefile.eeglobal
 include $(PS2SDK)/samples/Makefile.pref
 
-.PHONY : all clean compile directories disc irx update_win
+.PHONY : all clean clean_doom compile directories disc irx update_win
 
 all: compile disc update_win
 
@@ -66,5 +66,5 @@ clean:
 	make clean -C $(AUDSRVX_IOP)
 	rm -rf $(ISO_TGT) $(TARGET_DIR)/$(EE_BIN) $(EE_OBJS)
 
-	
-		
+clean_doom :
+	rm -rf $(ISO_TGT) $(TARGET_DIR)/$(EE_BIN) $(EE_OBJS)	

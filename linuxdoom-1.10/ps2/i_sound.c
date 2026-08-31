@@ -437,6 +437,9 @@ void I_InitSound()
       lengths[i] = lengths[(S_sfx[i].link - S_sfx) / sizeof(sfxinfo_t)];
       continue;
     }
+
+    FlushCache(0);
+
     audsrv_load_adpcm(&samples[i], S_sfx[i].data, lengths[i]);
   }
 
@@ -469,8 +472,8 @@ void I_PlaySong(int handle, int looping)
   tsf_reset(gTsfInstance);
   tsf_channel_set_bank_preset(gTsfInstance, 9, 128, 0);
   playing = false;
-  for (int i = 0; i<sizeof(dblBuffer); i+=(5*470))
-    I_RenderSamples(5*470);
+ // for (int i = 0; i<sizeof(dblBuffer); i+=(5*470))
+    //I_RenderSamples(5*470);
 }
 
 void I_PauseSong(int handle)
@@ -561,8 +564,8 @@ void I_CheckBufferIOP(void)
 
       if (bufferToFill != BUFFERBOTH)
       {
-        I_TransferAudio();
-        audsrv_transfer_notify(bufferToFill,  writeCount);
+       // I_TransferAudio();
+       // audsrv_transfer_notify(bufferToFill,  writeCount);
         writeCount = 0;
       }
       return;
@@ -590,8 +593,8 @@ void I_UpdateMusic(void)
 
   if (!playing)
   {
-    playing = true;
-    audsrv_transfer_notify(BUFFER1, sizeof(dblBuffer));
+   // playing = true;
+    //audsrv_transfer_notify(BUFFER1, sizeof(dblBuffer));
   } 
 
   I_CheckBufferIOP();
@@ -653,9 +656,9 @@ static void I_RenderSamples(int size)
 
   if (writeCount >= sizeof(dblBuffer) && bufferToFill != BUFFERBOTH)
   {
-    I_TransferAudio();
+   // I_TransferAudio();
     if (playing)
-      audsrv_transfer_notify(bufferFilled, writeCount);
+      //audsrv_transfer_notify(bufferFilled, writeCount);
     writeCount = 0;
   }
 }

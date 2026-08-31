@@ -43,8 +43,9 @@ extern sceMcTblGetDir saveentries[6];
 
 //pad stuff
 
-static u32 old_pad = 0;
 extern Controller mainController;
+
+static u32 old_pad;
 
 void M_LauncherInit(void)
 {
@@ -156,7 +157,7 @@ void M_LauncherRun(void)
     {
         UpdatePad();
         ClearScreen(g_Manager.targetBack, g_Manager.gs_context, 0xFF, 0, 0, 255);
-        DrawFullScreenQuad(halfh, halfw, background->width, background->height, background);
+        DrawFullScreenQuad(halfh, halfw, background);
         PrintText(fontimage, wadlist[wadselect], 50, 200, LEFT);
         StitchDrawBuffer(true);
         DispatchDrawBuffers();
@@ -171,13 +172,6 @@ void M_LauncherRun(void)
 
 void M_LauncherDeinit(void)
 {
-    //ClearManagerTexList(&g_Manager);
-  //  CleanFontStruct(fontimage);
-   // CleanTextureStruct(background);
-    //ClearManagerTexList(&g_Manager);
-    background = NULL;
-    fontimage = NULL;
-
     for (int i = 0; i<wadlistsize; i++)
     {
         free(wadlist[i]);

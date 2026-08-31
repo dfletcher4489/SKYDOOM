@@ -53,7 +53,7 @@ void I_ReadScreen (byte* scr);
 void I_BeginRead (void);
 void I_EndRead (void);
 
-void DrawFullScreenQuad(int screenHeight, int screenWidth, int drawableWidth, int drawableHeight, Texture* _image);
+void DrawFullScreenQuad(int screenHeight, int screenWidth, Texture* _image);
 
 #endif
 //-----------------------------------------------------------------------------

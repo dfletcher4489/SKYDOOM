@@ -90,7 +90,7 @@ typedef struct
     void		**columndirectory;	// OBSOLETE
     short		patchcount;
     mappatch_t	patches[1];
-} maptexture_t;
+} __attribute__((packed)) maptexture_t;
 
 
 // A single patch from a texture definition,
@@ -446,6 +446,9 @@ void R_InitTextures (void)
     // Load the patch names from pnames.lmp.
     name[8] = 0;	
     names = W_CacheLumpName ("PNAMES", PU_STATIC);
+
+    
+
     nummappatches = LONG ( *((int *)names) );
     name_p = names+4;
     patchlookup = alloca (nummappatches*sizeof(*patchlookup));
@@ -456,6 +459,8 @@ void R_InitTextures (void)
 	patchlookup[i] = W_CheckNumForName (name);
     }
     Z_Free (names);
+
+    
     
     // Load the map texture definitions from textures.lmp.
     // The data is contained in one or two lumps,
@@ -478,6 +483,8 @@ void R_InitTextures (void)
 	maxoff2 = 0;
     }
     numtextures = numtextures1 + numtextures2;
+
+   
 	
     textures = Z_Malloc (numtextures*4, PU_STATIC, 0);
     texturecolumnlump = Z_Malloc (numtextures*4, PU_STATIC, 0);
@@ -492,6 +499,7 @@ void R_InitTextures (void)
     //	Really complex printing shit...
     temp1 = W_GetNumForName ("S_START");  // P_???????
     temp2 = W_GetNumForName ("S_END") - 1;
+
     temp3 = ((temp2-temp1+63)/64) + ((numtextures+63)/64);
     printf("[");
     for (i = 0; i < temp3; i++)
@@ -525,12 +533,12 @@ void R_InitTextures (void)
 	    Z_Malloc (sizeof(texture_t)
 		      + sizeof(texpatch_t)*(SHORT(mtexture->patchcount)-1),
 		      PU_STATIC, 0);
-	
+     
 	texture->width = SHORT(mtexture->width);
-	texture->height = SHORT(mtexture->height);
+    texture->height = SHORT(mtexture->height);
 	texture->patchcount = SHORT(mtexture->patchcount);
 
-	memcpy (texture->name, mtexture->name, sizeof(texture->name));
+    memcpy (texture->name, mtexture->name, sizeof(texture->name));
 	mpatch = &mtexture->patches[0];
 	patch = &texture->patches[0];
 
@@ -544,13 +552,21 @@ void R_InitTextures (void)
 		I_Error ("R_InitTextures: Missing patch in texture %s",
 			 texture->name);
 	    }
-	}		
+	}
+
+ 
+
+
 	texturecolumnlump[i] = Z_Malloc (texture->width*2, PU_STATIC,0);
 	texturecolumnofs[i] = Z_Malloc (texture->width*2, PU_STATIC,0);
 
 	j = 1;
 	while (j*2 <= texture->width)
 	    j<<=1;
+
+
+    
+   
 
 	texturewidthmask[i] = j-1;
 	textureheight[i] = texture->height<<FRACBITS;
@@ -559,6 +575,8 @@ void R_InitTextures (void)
     }
 
     Z_Free (maptex1);
+    
+
     if (maptex2)
 	Z_Free (maptex2);
     
@@ -653,10 +671,13 @@ void R_InitColormaps (void)
 //
 void R_InitData (void)
 {
+   
     R_InitTextures ();
     printf ("\nInitTextures");
+     
     R_InitFlats ();
     printf ("\nInitFlats");
+    
     R_InitSpriteLumps ();
     printf ("\nInitSprites");
     R_InitColormaps ();

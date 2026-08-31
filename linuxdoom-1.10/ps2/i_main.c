@@ -129,9 +129,9 @@ main
     audio.bits = 16;
     audio.channels = 1;
     
-    audsrv_set_format(&audio);
+    //audsrv_set_format(&audio);
 
-    audsrv_set_volume(50);
+    //audsrv_set_volume(50);
 
     audioBuffer1 = SifAllocIopHeap(BUFFERSIZE);
     audioBuffer2 = SifAllocIopHeap(BUFFERSIZE);
@@ -141,7 +141,7 @@ main
         ERRORLOG("Cannot allocate audio buffers");
     }
 
-    audsrv_set_buffers(audioBuffer1, audioBuffer2, BUFFERSIZE, BUFFERSIZE);
+   // audsrv_set_buffers(audioBuffer1, audioBuffer2, BUFFERSIZE, BUFFERSIZE);
 
     u32 sf2Size = 0;
 
