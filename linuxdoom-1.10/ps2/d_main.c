@@ -90,9 +90,9 @@ static const char rcsid[] = "$Id: d_main.c,v 1.8 1997/02/03 22:45:09 b1 Exp $";
 //
 
 //from m_launcher
-extern GameMode_t *gamemodes;
-extern char **wadlist;
-extern char **dirlist;
+extern char *wadlist[10];
+extern char *dirlist[10];
+extern GameMode_t gamemodes[10];
 extern u32 wadlistsize;
 
 char mainwad[25];
@@ -201,7 +201,7 @@ gamestate_t     wipegamestate = GS_DEMOSCREEN;
 extern  boolean setsizeneeded;
 extern  int             showMessages;
 void R_ExecuteSetViewSize (void);
-#include "log/ps_log.h"
+
 void D_Display (void)
 {
     static  boolean		viewactivestate = false;
@@ -319,20 +319,7 @@ void D_Display (void)
     menuactivestate = menuactive;
     viewactivestate = viewactive;
     inhelpscreensstate = inhelpscreens;
-    oldgamestate = wipegamestate = gamestate;
-    
-    // draw pause pic
-  /*  if (paused)
-    {
-	if (automapactive)
-	    y = 4;
-	else
-	    y = viewwindowy+4;
-	V_DrawPatchDirect(viewwindowx+(scaledviewwidth-68)/2,
-			  y,0,W_CacheLumpName ("M_PAUSE", PU_CACHE));
-    } 
-	*/
-	
+    oldgamestate = wipegamestate = gamestate;	
 
     // menus go directly to the screen
     M_Drawer ();          // menu is drawn even on top of everything
@@ -351,6 +338,7 @@ void D_Display (void)
 	return;
     }
     
+	I_RemoveAllSoundsFromQueue();
     // wipe update
     wipe_EndScreen(0, 0, SCREENWIDTH, SCREENHEIGHT);
 
@@ -430,11 +418,7 @@ void D_DoomLoop (void)
 		
 	    TryRunTics (); // will run at least one tic	
 	}
-	
-	//S_UpdateSounds (players[consoleplayer].mo);// move positional sounds
-	// Update display, next frame, with current state.
 
-	
 	D_Display ();
 	
 	I_UpdateSound();

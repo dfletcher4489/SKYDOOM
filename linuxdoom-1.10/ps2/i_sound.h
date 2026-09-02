@@ -86,6 +86,7 @@ I_UpdateSoundParams
   int		sep,
   int		pitch );
 
+void I_RemoveAllSoundsFromQueue(void);
 
 //
 //  MUSIC I/O

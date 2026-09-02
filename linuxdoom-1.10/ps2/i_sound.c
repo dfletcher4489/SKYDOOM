@@ -85,9 +85,8 @@ static int flag = 0;
 
 // The actual lengths of all sound effects.
 int lengths[NUMSFX];
-
-audsrv_adpcm_t samples[NUMSFX];
-audsrv_adpcm_t *samplestoplay[NUM_CHANNELS];
+static audsrv_adpcm_t samples[NUMSFX];
+static int samplestoplay[NUM_CHANNELS];
 static int volumes[NUM_CHANNELS];
 VagFile *vagFiles[NUMSFX];
 static int currentSampleIndex = 0;
@@ -98,7 +97,8 @@ static int buffer1Full, buffer2Full;
 static int bufferToFill, bufferFilled;
 char dblBuffer[(5*44100)+400];
 static int writeCount;
-boolean playing = false;
+static boolean playing = false;
+
 enum 
 {
   BUFFER1 = 1,
@@ -114,6 +114,7 @@ SifDmaTransfer_t dmaStruct;
 void I_TransferAudio()
 {
   bufferFilled = bufferToFill;
+
   if (bufferToFill == BUFFER1)
   {
     dmaStruct.dest = (void*)audioBuffer1;
@@ -127,9 +128,9 @@ void I_TransferAudio()
     ERRORLOG("Never supposed to happen! %d", bufferToFill);
     return;
   }
+
   while((sifTransferID = SifSetDma(&dmaStruct, 1)) == 0);
   while(SifDmaStat(sifTransferID) == 0);
-  
 }
 
 
@@ -309,7 +310,7 @@ int I_StartSound(int id,
   }
   if (sampleToPlayIndex >= NUM_CHANNELS)
     sampleToPlayIndex = 0;
-  samplestoplay[sampleToPlayIndex] = &samples[id];
+  samplestoplay[sampleToPlayIndex] = id;
   volumes[sampleToPlayIndex++] = MAX_VOLUME * ((float)vol/15);
   return id;
 }
@@ -330,6 +331,16 @@ int I_SoundIsPlaying(int handle)
 {
   // Ouch.
   return gametic < handle;
+}
+
+void I_RemoveAllSoundsFromQueue(void)
+{
+  for (int i = 0; i < NUM_CHANNELS; i++)
+  {
+    samplestoplay[i] = 0;
+    currentSampleIndex = 0;
+    sampleToPlayIndex = 0;
+  }
 }
 
 //
@@ -361,9 +372,9 @@ void I_UpdateSound(void)
   // find a channel to play a sample
   for (int i = currentSampleIndex; i < NUM_CHANNELS && samplestoplay[i]; i++)
   {
-      int channel = audsrv_ch_play_adpcm(i, samplestoplay[i]);
+      int channel = audsrv_ch_play_adpcm(i, &samples[samplestoplay[i]]);
       audsrv_adpcm_set_volume(channel, volumes[i]);
-      samplestoplay[i] = NULL;
+      samplestoplay[i] = 0;
       currentSampleIndex++;
   }
 
@@ -472,8 +483,8 @@ void I_PlaySong(int handle, int looping)
   tsf_reset(gTsfInstance);
   tsf_channel_set_bank_preset(gTsfInstance, 9, 128, 0);
   playing = false;
- // for (int i = 0; i<sizeof(dblBuffer); i+=(5*470))
-    //I_RenderSamples(5*470);
+  for (int i = 0; i<sizeof(dblBuffer); i+=(5*470))
+    I_RenderSamples(5*470);
 }
 
 void I_PauseSong(int handle)
@@ -550,7 +561,7 @@ void I_SoundDelTimer()
 void I_CheckBufferIOP(void)
 {
     audsrv_check_buffers(&buffer1Full, &buffer2Full);
-    //DEBUGLOG("%d %d", buffer1Full, buffer2Full);
+
     if (bufferToFill == BUFFERBOTH)
     {
       if (!buffer1Full)
@@ -564,8 +575,8 @@ void I_CheckBufferIOP(void)
 
       if (bufferToFill != BUFFERBOTH)
       {
-       // I_TransferAudio();
-       // audsrv_transfer_notify(bufferToFill,  writeCount);
+        I_TransferAudio();
+        audsrv_transfer_notify(bufferToFill,  writeCount);
         writeCount = 0;
       }
       return;
@@ -580,8 +591,6 @@ void I_CheckBufferIOP(void)
     else if (buffer2Full && bufferToFill == BUFFER2)
       bufferToFill = BUFFER1;
     
-
-    
 }
 
 void I_UpdateMusic(void)
@@ -593,8 +602,8 @@ void I_UpdateMusic(void)
 
   if (!playing)
   {
-   // playing = true;
-    //audsrv_transfer_notify(BUFFER1, sizeof(dblBuffer));
+    playing = true;
+    audsrv_transfer_notify(BUFFER1, sizeof(dblBuffer));
   } 
 
   I_CheckBufferIOP();
@@ -607,8 +616,8 @@ void I_UpdateMusic(void)
   I_RenderSamples(470 * 5);
  
 }
-#include <kernel.h>
-static void I_RenderSamples(int size)
+
+void I_RenderSamples(int size)
 {
   FlushCache(0);
   s16 *out = (s16 *)(&dblBuffer[writeCount]); 
@@ -656,9 +665,11 @@ static void I_RenderSamples(int size)
 
   if (writeCount >= sizeof(dblBuffer) && bufferToFill != BUFFERBOTH)
   {
-   // I_TransferAudio();
+    I_TransferAudio();
+
     if (playing)
-      //audsrv_transfer_notify(bufferFilled, writeCount);
+      audsrv_transfer_notify(bufferFilled, writeCount);
+
     writeCount = 0;
   }
 }

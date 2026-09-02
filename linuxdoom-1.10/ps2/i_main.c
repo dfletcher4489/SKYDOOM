@@ -129,9 +129,9 @@ main
     audio.bits = 16;
     audio.channels = 1;
     
-    //audsrv_set_format(&audio);
+    audsrv_set_format(&audio);
 
-    //audsrv_set_volume(50);
+    audsrv_set_volume(100);
 
     audioBuffer1 = SifAllocIopHeap(BUFFERSIZE);
     audioBuffer2 = SifAllocIopHeap(BUFFERSIZE);
@@ -141,7 +141,7 @@ main
         ERRORLOG("Cannot allocate audio buffers");
     }
 
-   // audsrv_set_buffers(audioBuffer1, audioBuffer2, BUFFERSIZE, BUFFERSIZE);
+    audsrv_set_buffers(audioBuffer1, audioBuffer2, BUFFERSIZE, BUFFERSIZE);
 
     u32 sf2Size = 0;
 
@@ -156,6 +156,8 @@ main
     gTsfInstance = tsf_load_memory(gzsf2, sf2Size);
 
     tsf_set_output(gTsfInstance, TSF_MONO, 22050, 0.0f);
+
+    tsf_set_volume(gTsfInstance, 1.75);
 
     InitializeController(&mainController, 0, 0);
 

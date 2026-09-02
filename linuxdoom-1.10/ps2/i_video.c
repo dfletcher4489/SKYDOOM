@@ -41,30 +41,20 @@ static const char
 #include "z_zone.h"
 #include "doomdef.h"
 #include "i_video.h"
-// #include <draw2d.h>
-// #include <draw3d.h>
-#include <draw_primitives.h>
-#include <gif_tags.h>
+#include "i_sound.h"
+#include <graph.h>
+#include "ps_global.h"
 #include "pad/ps_pad.h"
-#include "pipelines/ps_pipelineinternal.h"
-#include "gameobject/ps_gameobject.h"
-#include "pipelines/ps_vu1pipeline.h"
 #include "dma/ps_dma.h"
 #include "gs/ps_gs.h"
-#include "system/ps_vumanager.h"
 #include "textures/ps_texture.h"
-#include "system/ps_vif.h"
-#include "pipelines/ps_pipelinecbs.h"
-#include "ps_global.h"
-#include "log/ps_log.h"
-#include "textures/ps_texture.h"
-#include "gs/ps_gs.h"
 #include "gamemanager/ps_manager.h"
 #include "system/ps_timer.h"
 #include "graphics/ps_drawing.h"
+#include "log/ps_log.h"
 
 #define PS2_TEXTURE_SIZE_X 512
-#define PS2_TEXTURE_SIZE_Y (256)
+#define PS2_TEXTURE_SIZE_Y (PS2_TEXTURE_SIZE_X >> 1)
 
 typedef struct ColorPaletted
 {
@@ -82,7 +72,7 @@ extern u32 SKYDOOM_HEIGHT;
 extern u32 SKYDOOM_WIDTH;
 extern Controller mainController;
 
-static ColorPaletted colors[256];
+__attribute__((aligned(128))) static ColorPaletted colors[256];
 u32 SKYDOOM_HEIGHT_HALF;
 u32 SKYDOOM_WIDTH_HALF;
 Texture image;
@@ -93,10 +83,7 @@ Texture image;
 
 float timestart, timeend;
 
-static u32 old_pad = 0;
-static u32 new_pad;
-static u32 currData;
-struct padButtonStatus buttons;
+
 static u32 events_id[16] = {KEY_ESCAPE, KEY_SPEED, 0, KEY_PAUSE, 
 							KEY_UPARROW, KEY_RIGHTARROW, KEY_DOWNARROW, KEY_LEFTARROW, 
 							0, KEY_FIRE, KEY_CYCLE_LEFT, KEY_CYCLE_RIGHT, 
@@ -107,8 +94,51 @@ static u8 JoyLHPv = 127;
 static u8 JoyRVPv = 127;
 static u32 lower = 50;
 static u32 upper = 200;
+
+static void AddJoyStickEvent(int keySpoof, evtype_t eventType)
+{
+	event_t event;
+	event.type = eventType;
+	event.data1 = keySpoof;
+	D_PostEvent(&event);
+}
+
+static void CheckLowerAxisDown(u32 joyVal, u32 joyValPrev, u32 threshold, int keySpoof)
+{
+	if (joyVal <= threshold && joyValPrev > threshold)
+	{
+		AddJoyStickEvent(keySpoof, ev_keydown);
+	}
+}
+
+static void CheckLowerAxisUp(u32 joyVal, u32 joyValPrev, u32 threshold, int keySpoof)
+{
+	if (joyVal > threshold && joyValPrev <= threshold)
+	{
+		AddJoyStickEvent(keySpoof, ev_keyup);
+	}
+}
+
+static void CheckUpperAxisUp(u32 joyVal, u32 joyValPrev, u32 threshold, int keySpoof)
+{
+	if (joyVal < threshold && joyValPrev >= threshold)
+	{
+		AddJoyStickEvent(keySpoof, ev_keyup);
+	}
+}
+
+static void CheckUpperAxisDown(u32 joyVal, u32 joyValPrev, u32 threshold, int keySpoof)
+{
+	if (joyVal >= threshold && joyValPrev < threshold)
+	{
+		AddJoyStickEvent(keySpoof, ev_keydown);
+	}
+}
+
 void I_UpdatePad()
 {
+	static u32 old_pad = 0;
+
 	int state = GetPadWhenReady(&mainController);
 
     if (state < 0)
@@ -123,141 +153,38 @@ void I_UpdatePad()
 
 	if (!state)
 	{
-		currData = 0xffff ^ mainController.buttons.btns;
+		u32 currData = 0xffff ^ mainController.buttons.btns;
 
-		new_pad = currData & ~old_pad;
+		u32 new_pad = currData & ~old_pad;
 
-		if (mainController.buttons.rjoy_h <= lower && JoyRHPv > lower)
-		{
-			//DEBUGLOG("LOOK LEFT PRESSED %d %d",
-			//		 buttons.rjoy_h, JoyRHPv);
-			event.type = ev_keydown;
-			event.data1 = KEY_LOOK_LEFT;
-			D_PostEvent(&event);
-		}
-		if (mainController.buttons.rjoy_h > lower && JoyRHPv <= lower)
-		{
-			//DEBUGLOG("LOOK LEFT RELEASED %d %d",
-			//		 buttons.rjoy_h, JoyRHPv);
-			event.type = ev_keyup;
-			event.data1 = KEY_LOOK_LEFT;
-			D_PostEvent(&event);
-		}
-		if (mainController.buttons.rjoy_h >= upper && JoyRHPv < upper)
-		{
-			//DEBUGLOG("LOOK RIGHT PRESSED %d %d",
-			//		 buttons.rjoy_h, JoyRHPv);
-			event.type = ev_keydown;
-			event.data1 = KEY_LOOK_RIGHT;
-			D_PostEvent(&event);
-		}
-		if (mainController.buttons.rjoy_h < upper && JoyRHPv >= upper)
-		{
-			//DEBUGLOG("LOOK RIGHT RELEASED %d %d",
-			//		 buttons.rjoy_h, JoyRHPv);
-			event.type = ev_keyup;
-			event.data1 = KEY_LOOK_RIGHT;
-			D_PostEvent(&event);
-		}
+		CheckLowerAxisDown(mainController.buttons.rjoy_h, JoyRHPv, lower, KEY_LOOK_LEFT);
+		CheckLowerAxisUp(mainController.buttons.rjoy_h, JoyRHPv, lower, KEY_LOOK_LEFT);
 
-		if (mainController.buttons.rjoy_v <= lower && JoyRVPv > lower)
-		{
-			//DEBUGLOG("LOOK UP PRESSED %d %d",
-			//		 buttons.rjoy_v, JoyRVPv);
-			event.type = ev_keydown;
-			event.data1 = KEY_LOOK_UP;
-			D_PostEvent(&event);
-		}
-		if (mainController.buttons.rjoy_v > lower && JoyRVPv <= lower)
-		{
-			//DEBUGLOG("LOOK UP RELEASED %d %d",
-			//		 buttons.rjoy_h, JoyRVPv);
-			event.type = ev_keyup;
-			event.data1 = KEY_LOOK_UP;
-			D_PostEvent(&event);
-		}
-		if (mainController.buttons.rjoy_v >= upper && JoyRVPv < upper)
-		{
-			//DEBUGLOG("LOOK DOWN PRESSED %d %d",
-			//		 buttons.rjoy_v, JoyRVPv);
-			event.type = ev_keydown;
-			event.data1 = KEY_LOOK_DOWN;
-			D_PostEvent(&event);
-		}
-		if (mainController.buttons.rjoy_v < upper && JoyRVPv >= upper)
-		{
-			//DEBUGLOG("LOOK DOWN RELEASED %d %d",
-			//		 buttons.rjoy_v, JoyRVPv);
-			event.type = ev_keyup;
-			event.data1 = KEY_LOOK_DOWN;
-			D_PostEvent(&event);
-		}
+		CheckUpperAxisDown(mainController.buttons.rjoy_h, JoyRHPv, upper, KEY_LOOK_RIGHT);
+		CheckUpperAxisUp(mainController.buttons.rjoy_h, JoyRHPv, upper, KEY_LOOK_RIGHT);
 
-		if (mainController.buttons.ljoy_h <= lower && JoyLHPv > lower)
-		{
-			//DEBUGLOG("LEFT PRESSED %d %d", buttons.ljoy_h, JoyLHPv);
-			event.type = ev_keydown;
-			event.data1 = KEY_MOVE_LEFT;
-			D_PostEvent(&event);
-		}
-		if (mainController.buttons.ljoy_h > lower && JoyLHPv <= lower)
-		{
-			//DEBUGLOG("LEFT RELEASED %d %d", buttons.ljoy_h, JoyLHPv);
-			event.type = ev_keyup;
-			event.data1 = KEY_MOVE_LEFT;
-			D_PostEvent(&event);
-		}
-		if (mainController.buttons.ljoy_h >= upper && JoyLHPv < upper)
-		{
-			//DEBUGLOG("RIGHT PRESSED %d %d", buttons.ljoy_h, JoyLHPv);
-			event.type = ev_keydown;
-			event.data1 = KEY_MOVE_RIGHT;
-			D_PostEvent(&event);
-		}
-		if (mainController.buttons.ljoy_h < upper && JoyLHPv >= upper)
-		{
-			//DEBUGLOG("RIGHT RELEASED %d %d", buttons.ljoy_h, JoyLHPv);
-			event.type = ev_keyup;
-			event.data1 = KEY_MOVE_RIGHT;
-			D_PostEvent(&event);
-		}
+		CheckLowerAxisDown(mainController.buttons.rjoy_v, JoyRVPv, lower, KEY_LOOK_UP);
+		CheckLowerAxisUp(mainController.buttons.rjoy_v, JoyRVPv, lower, KEY_LOOK_UP);
 
-		if (mainController.buttons.ljoy_v <= lower && JoyLVPv > lower)
-		{
-			//DEBUGLOG("UP PRESSED %d %d", buttons.ljoy_v, JoyLVPv);
-			event.type = ev_keydown;
-			event.data1 = KEY_UPARROW;
-			D_PostEvent(&event);
-		}
-		if (mainController.buttons.ljoy_v > lower && JoyLVPv <= lower)
-		{
-			//DEBUGLOG("UP RELEASED %d %d", buttons.ljoy_v, JoyLVPv);
-			event.type = ev_keyup;
-			event.data1 = KEY_UPARROW;
-			D_PostEvent(&event);
-		}
-		if (mainController.buttons.ljoy_v >= upper && JoyLVPv < upper)
-		{
-			//DEBUGLOG("DOWN PRESSED %d %d", buttons.ljoy_v, JoyLVPv);
-			event.type = ev_keydown;
-			event.data1 = KEY_DOWNARROW;
-			D_PostEvent(&event);
-		}
-		if (mainController.buttons.ljoy_v < upper && JoyLVPv >= upper)
-		{
-			//DEBUGLOG("DOWN RELEASED %d %d", buttons.ljoy_v, JoyLVPv);
-			event.type = ev_keyup;
-			event.data1 = KEY_DOWNARROW;
-			D_PostEvent(&event);
-		}
+		CheckUpperAxisDown(mainController.buttons.rjoy_v, JoyRVPv, upper, KEY_LOOK_DOWN);
+		CheckUpperAxisUp(mainController.buttons.rjoy_v, JoyRVPv, upper, KEY_LOOK_DOWN);
+
+		CheckLowerAxisDown(mainController.buttons.ljoy_h, JoyLHPv, lower, KEY_MOVE_LEFT);
+		CheckLowerAxisUp(mainController.buttons.ljoy_h, JoyLHPv, lower, KEY_MOVE_LEFT);
+
+		CheckUpperAxisDown(mainController.buttons.ljoy_h, JoyLHPv, upper, KEY_MOVE_RIGHT);
+		CheckUpperAxisUp(mainController.buttons.ljoy_h, JoyLHPv, upper, KEY_MOVE_RIGHT);
+
+		CheckLowerAxisDown(mainController.buttons.ljoy_v, JoyLVPv, lower, KEY_UPARROW);
+		CheckLowerAxisUp(mainController.buttons.ljoy_v, JoyLVPv, lower, KEY_UPARROW);
+
+		CheckUpperAxisDown(mainController.buttons.ljoy_v, JoyLVPv, upper, KEY_DOWNARROW);
+		CheckUpperAxisUp(mainController.buttons.ljoy_v, JoyLVPv, upper, KEY_DOWNARROW);
 
 		JoyRVPv = mainController.buttons.rjoy_v;
 		JoyRHPv = mainController.buttons.rjoy_h;
 		JoyLHPv = mainController.buttons.ljoy_h;
 		JoyLVPv = mainController.buttons.ljoy_v;
-		//	DEBUGLOG("%d %d", buttons.ljoy_v, JoyLVPv);
-		//	DEBUGLOG("%d %d", buttons.ljoy_h, JoyLHPv);
-		//	DEBUGLOG("%d %d", buttons.rjoy_h, JoyRHPv);
 
 		int padType = 0x0001;
 		for (int i = 0; padType != 0; i++)
@@ -268,7 +195,7 @@ void I_UpdatePad()
 				event.data1 = events_id[i];
 				D_PostEvent(&event);
 			}
-			// release
+			
 			if (!(currData & padType) && (old_pad & padType))
 			{
 				event.type = ev_keyup;
@@ -312,8 +239,6 @@ void I_UpdateNoBlit(void)
 //
 // I_FinishUpdate
 //
-#include <graph.h>
-#include "i_sound.h"
 
 void I_FinishUpdate(void)
 {
@@ -322,7 +247,8 @@ void I_FinishUpdate(void)
 	DrawFullScreenQuad(SKYDOOM_HEIGHT_HALF, SKYDOOM_WIDTH_HALF, &image);
 	StitchDrawBuffer(true);
     DispatchDrawBuffers();
-	EndFrame(1);
+	EndFrame(0);
+	graph_start_vsync();
 	while (!(graph_check_vsync()))
 	{
 		I_UpdateMusic();

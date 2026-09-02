@@ -28,10 +28,9 @@ Font *fontimage = NULL;
 u32 wadlistsize = 0;
 u32 wadselect = 0;
 
-char **wadlist = NULL;
-char **dirlist = NULL;
-
-GameMode_t *gamemodes = NULL;
+char *wadlist[10];
+char *dirlist[10];
+GameMode_t gamemodes[10];
 
 extern GameMode_t gamemode;
 extern char mainwad[25];
@@ -52,18 +51,12 @@ void M_LauncherInit(void)
     runninglauncher = true;
 
     background = AddAndCreateTextureFromBuffer(backgroundpng, sizeof(backgroundpng), "BACKGROUND", READ_PNG, 0, 0, TEX_ADDRESS_CLAMP); 
-    //AddAndCreateTexture("BACKGROUND.PNG", READ_PNG, 0, 0, TEX_ADDRESS_CLAMP, 1);
 
     fontimage = CreateFontStructFromBuffer("DEFAULT", DefaultFontbmp, DefaultFontDatadat, READ_BMP, sizeof(DefaultFontbmp), sizeof(DefaultFontDatadat)); 
-    //CreateFontStruct("DEFAULTFONT.BMP", "DEFAULTFONTDATA.DAT", READ_BMP);
 
     fontimage->color.r = 0x00;
     fontimage->color.g = 0x00;
     fontimage->color.b = 0x00;
-
-    wadlist = malloc(sizeof(char *) * 10);
-    dirlist = malloc(sizeof(char *) * 10);
-    gamemodes = (GameMode_t *)malloc(sizeof(GameMode_t) * 10);
 }
 
 static void UpdatePad()
@@ -177,11 +170,4 @@ void M_LauncherDeinit(void)
         free(wadlist[i]);
         free(dirlist[i]);
     }
-    free(dirlist);
-    free(wadlist);
-    free(gamemodes);
-
-    wadlist = NULL;
-    dirlist = NULL;
-    gamemodes = NULL;
 }
