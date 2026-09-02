@@ -87,6 +87,11 @@ main
         return -1;
     }
 
+    ClearScreen(g_Manager.targetBack, g_Manager.gs_context, 0xFF, 0, 0, 255);
+    StitchDrawBuffer(true);
+    DispatchDrawBuffers();
+    EndFrame(1);
+
     int memCardRet = mcGetInfo(0 , 0,  &memCardType, &memCardFree, &memCardFormat);
     mcSync(0, NULL, &ret);
 
@@ -103,14 +108,24 @@ main
 
     if (useMemCard)
     {
-        mcGetDir(0, 0, doomdir, 0, 6, saveentries);
+        mcGetDir(0, 0, doomdir, 0, 8, saveentries);
 
         mcSync(0, NULL, &ret);
 
-        if (ret == -4)
+        if (ret == -4 || ret == 0)
         {
+            ClearScreen(g_Manager.targetBack, g_Manager.gs_context, 0x00, 0xFF, 0, 255);
+            StitchDrawBuffer(true);
+            DispatchDrawBuffers();
+            EndFrame(1);
+
             mcMkDir(0, 0, doomdir);
             mcSync(0, NULL, &ret);
+
+            if (ret < 0)
+            {
+                return -1;
+            }
         }
     }
 
@@ -157,7 +172,7 @@ main
 
     tsf_set_output(gTsfInstance, TSF_MONO, 22050, 0.0f);
 
-    tsf_set_volume(gTsfInstance, 1.75);
+    tsf_set_volume(gTsfInstance, 1.25);
 
     InitializeController(&mainController, 0, 0);
 

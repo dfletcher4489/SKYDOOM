@@ -115,7 +115,7 @@ static void UpdatePad()
 
             mcSync(0, NULL, &ret);
 
-            if (ret == -4)
+            if (ret == -4 || ret == 0)
             {
                 mcMkDir(0, 0, doomdir);
                 mcSync(0, NULL, &ret);

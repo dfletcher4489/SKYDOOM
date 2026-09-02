@@ -613,9 +613,12 @@ void M_DrawSaveLoadBorder(int x, int y)
 void M_LoadSelect(int choice)
 {
     char name[256];
-    sprintf(name, "%s%s%s"SAVEGAMENAME "%d.dsg", 
+    int charCount = sprintf(name, "%s%s%s"SAVEGAMENAME "%d.dsg", 
             "mc0:", doomdir, "/", choice);
-    DEBUGLOG("%s", name);
+            
+    for (int i = 4; i<charCount; i++)
+        name[i] = toupper(name[i]);
+
     G_LoadGame(name);
     M_ClearMenus();
 }

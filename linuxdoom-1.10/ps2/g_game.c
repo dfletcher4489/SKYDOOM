@@ -1297,7 +1297,11 @@ void G_DoSaveGame(void)
     int i;
 
     
-    sprintf(name, "%s%s/"SAVEGAMENAME "%d.dsg", "mc0:", doomdir, savegameslot);
+    int charCount = sprintf(name, "%s%s/"SAVEGAMENAME "%d.dsg", "mc0:", doomdir, savegameslot);
+
+    for (int i = 4; i<charCount; i++)
+        name[i] = toupper(name[i]);
+
     description = savedescription;
 
     save_p = savebuffer = screens[1] + 0x4000;
@@ -1329,24 +1333,7 @@ void G_DoSaveGame(void)
     if (length > SAVEGAMESIZE)
         I_Error("Savegame buffer overrun");
     M_WriteFile(name, savebuffer, length);
-    /*int fd = mcOpen(0, 0, name, sceMcFileAttrWriteable | sceMcFileCreateFile);
-    int ret;
-    mcSync(0, NULL, &ret);
-    if (ret < 0)
-    {
-        players[consoleplayer].message = "COULDN'T OPEN SAVE";
-        goto end;
-    }
-    ret = mcWrite(fd, savebuffer, length);
-    mcSync(0, NULL, &ret);
-    if (ret < 0)
-    {
-        players[consoleplayer].message = "COULDN'T WRITE SAVE";
-    }
-    else 
-    { */
-        players[consoleplayer].message = GGSAVED;
-    //}
+    players[consoleplayer].message = GGSAVED;
 end:
     gameaction = ga_nothing;
     savedescription[0] = 0;
