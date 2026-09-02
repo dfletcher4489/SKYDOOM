@@ -478,6 +478,33 @@ void I_PlaySong(int handle, int looping)
   writeCount = 0;
   g_Msec = 0;
   g_MidiMessage = playingMusic.midimessage;
+
+  tsf_clear_sample_allocator(gTsfInstance);
+
+  for (; g_MidiMessage; g_MidiMessage = g_MidiMessage->next)
+  {
+    switch (g_MidiMessage->type)
+    {
+       case TML_PROGRAM_CHANGE: // channel program (preset) change (special handling for 10th MIDI channel with drums)
+        tsf_channel_set_presetnumber(gTsfInstance, g_MidiMessage->channel, g_MidiMessage->program, (g_MidiMessage->channel == 9));
+        break;
+      case TML_NOTE_ON: // play a note
+        tsf_channel_note_allocate(gTsfInstance, g_MidiMessage->channel, g_MidiMessage->key, g_MidiMessage->velocity / 127.0f);
+        break;
+      case TML_NOTE_OFF: // stop a note
+        tsf_channel_note_off(gTsfInstance, g_MidiMessage->channel, g_MidiMessage->key);
+        break;
+      case TML_PITCH_BEND: // pitch wheel modification
+        tsf_channel_set_pitchwheel(gTsfInstance, g_MidiMessage->channel, g_MidiMessage->pitch_bend);
+        break;
+      case TML_CONTROL_CHANGE: // MIDI controller messages
+        tsf_channel_midi_control(gTsfInstance, g_MidiMessage->channel, g_MidiMessage->control, g_MidiMessage->control_value);
+        break;
+    }  
+  }
+
+  g_MidiMessage = playingMusic.midimessage;
+
   handle = looping = 0;
   musicdies = gametic + TICRATE * 30;
   tsf_reset(gTsfInstance);

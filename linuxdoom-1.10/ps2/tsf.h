@@ -325,7 +325,7 @@ typedef unsigned int tsf_u32;
 typedef char tsf_char20[20];
 
 #define TSF_FourCCEquals(value1, value2) (value1[0] == value2[0] && value1[1] == value2[1] && value1[2] == value2[2] && value1[3] == value2[3])
-
+#define TSF_MAX_SAMPLES_IN_ARENA_LOOKUP 24
 struct tsf
 {
 	struct tsf_preset* presets;
@@ -342,6 +342,12 @@ struct tsf
 	float outSampleRate;
 	float globalGainDB;
 	int* refCount;
+	int samplesOffsetInFile;
+	int sampleAllocator;
+	int sampleAllocatorCapacity;
+	char* samplePtr; 
+	unsigned int samplesInArena[TSF_MAX_SAMPLES_IN_ARENA_LOOKUP]; //offset in arena
+	int samplesInArenaTop;
 };
 
 #ifndef TSF_NO_STDIO
@@ -437,6 +443,10 @@ struct tsf_region
 	int freqModLFO, modLfoToPitch;
 	float delayVibLFO;
 	int freqVibLFO, vibLfoToPitch;
+	unsigned int bufferLookup;
+	unsigned int bufferEnd;
+	unsigned int loopBufferStart;
+	unsigned int loopBufferEnd;
 };
 
 struct tsf_preset
@@ -833,6 +843,8 @@ static int tsf_load_presets(tsf* res, struct tsf_hydra *hydra, unsigned int font
 								if (zoneRegion.end && zoneRegion.end < fontSampleCount) zoneRegion.end++;
 								else zoneRegion.end = fontSampleCount;
 
+				
+
 								preset->regions[region_index] = zoneRegion;
 								region_index++;
 								hadSampleID = 1;
@@ -976,6 +988,8 @@ static int tsf_load_samples(void** pRawBuffer, float** pFloatBuffer, unsigned in
 	// With OGG Vorbis support we cannot pre-allocate the memory for tsf_decode_sf3_samples
 	tsf_u32 resNum, resMax; float* oldres;
 	*pSmplCount = chunkSmpl->size;
+
+	
 	*pRawBuffer = (void*)TSF_MALLOC(*pSmplCount);
 	if (!*pRawBuffer || !stream->read(stream->data, *pRawBuffer, chunkSmpl->size)) return 0;
 	if (chunkSmpl->id[3] != 'o') return 1;
@@ -989,6 +1003,8 @@ static int tsf_load_samples(void** pRawBuffer, float** pFloatBuffer, unsigned in
 	#else
 	// Inline convert the samples from short to float
 	float *res, *out; const short *in;
+
+	
 	*pSmplCount = chunkSmpl->size / (unsigned int)sizeof(short);
 	*pFloatBuffer = (float*)TSF_MALLOC(*pSmplCount * sizeof(float));
 	if (!*pFloatBuffer || !stream->read(stream->data, *pFloatBuffer, chunkSmpl->size)) return 0;
@@ -1227,7 +1243,7 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 	TSF_BOOL updateVibLFO = (v->viblfo.delta && (region->vibLfoToPitch));
 	TSF_BOOL isLooping    = (v->loopStart < v->loopEnd);
 	unsigned int tmpLoopStart = v->loopStart, tmpLoopEnd = v->loopEnd;
-	float tmpSampleEndDbl = (float)region->end, tmpLoopEndDbl = (float)tmpLoopEnd + 1.0;
+	float tmpSampleEndDbl = (float)region->bufferEnd, tmpLoopEndDbl = (float)tmpLoopEnd + 1.0;
 	float tmpSourceSamplePosition = v->sourceSamplePosition;
 	//struct tsf_voice_lowpass tmpLowpass = v->lowpass;
 
@@ -1320,6 +1336,9 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 	void* rawBuffer = TSF_NULL;
 	float* floatBuffer = TSF_NULL;
 	tsf_u32 smplCount = 0;
+	tsf_u32 samplePos = 0;
+	tsf_u32 sampleArenaCapacity;
+	char* samplePtr = TSF_NULL;
 
 	if (!tsf_riffchunk_read(TSF_NULL, &chunkHead, stream) || !TSF_FourCCEquals(chunkHead.id, "sfbk"))
 	{
@@ -1367,9 +1386,15 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 						#endif
 					) && !rawBuffer && !floatBuffer && chunk.size >= sizeof(short))
 				{
-					if (!tsf_load_samples(&rawBuffer, &floatBuffer, &smplCount, &chunk, stream)) goto out_of_memory;
+					samplePos = ((struct tsf_stream_memory*)stream->data)->pos;
+					samplePtr = ((struct tsf_stream_memory*)stream->data)->buffer + samplePos;
+					sampleArenaCapacity = 200 * 1024 * sizeof(float);
+			
+					floatBuffer = (float*)TSF_MALLOC(sampleArenaCapacity);
+					smplCount = chunk.size / (unsigned int)sizeof(short);
 				}
-				else stream->skip(stream->data, chunk.size);
+				
+				stream->skip(stream->data, chunk.size);
 			}
 		}
 		else stream->skip(stream->data, chunkList.size);
@@ -1392,6 +1417,11 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 		if (!res || !tsf_load_presets(res, &hydra, smplCount)) goto out_of_memory;
 		res->outSampleRate = 44100.0f;
 		res->fontSamples = floatBuffer;
+		res->samplesOffsetInFile = samplePos;
+		res->sampleAllocator = 0;
+		res->samplePtr = samplePtr;
+		res->sampleAllocatorCapacity = sampleArenaCapacity;
+		res->samplesInArenaTop = 0;
 		floatBuffer = TSF_NULL; // don't free below
 	}
 	if (0)
@@ -1583,12 +1613,12 @@ TSFDEF int tsf_note_on(tsf* f, int preset_index, int key, float vel)
 		}
 
 		// Offset/end.
-		voice->sourceSamplePosition = region->offset;
+		voice->sourceSamplePosition = region->bufferLookup;
 
 		// Loop.
-		doLoop = (region->loop_mode != TSF_LOOPMODE_NONE && region->loop_start < region->loop_end);
-		voice->loopStart = (doLoop ? region->loop_start : 0);
-		voice->loopEnd = (doLoop ? region->loop_end : 0);
+		doLoop = (region->loop_mode != TSF_LOOPMODE_NONE && region->loopBufferStart < region->loopBufferEnd);
+		voice->loopStart = (doLoop ? region->loopBufferStart  : 0);
+		voice->loopEnd = (doLoop ? region->loopBufferEnd : 0);
 
 		// Setup envelopes.
 		tsf_voice_envelope_setup(&voice->ampenv, &region->ampenv, key, midiVelocity, TSF_TRUE, f->outSampleRate);
@@ -1606,6 +1636,86 @@ TSFDEF int tsf_note_on(tsf* f, int preset_index, int key, float vel)
 		tsf_voice_lfo_setup(&voice->modlfo, region->delayModLFO, region->freqModLFO, f->outSampleRate);
 		tsf_voice_lfo_setup(&voice->viblfo, region->delayVibLFO, region->freqVibLFO, f->outSampleRate);
 	}
+	return 1;
+}
+
+TSFDEF int tsf_clear_sample_allocator(tsf* f)
+{
+	f->samplesInArenaTop = 0;
+	f->sampleAllocator = 0;
+	return 1;
+}
+
+TSFDEF int tsf_note_allocate(tsf* f, int preset_index, int key, float vel)
+{
+	short midiVelocity = (short)(vel * 127);
+	int voicePlayIndex;
+	struct tsf_region *region, *regionEnd;
+
+	if (preset_index < 0 || preset_index >= f->presetNum) return 1;
+	if (vel <= 0.0f) { tsf_note_off(f, preset_index, key); return 1; }
+
+	// Play all matching regions.
+	voicePlayIndex = f->voicePlayIndex++;
+	for (region = f->presets[preset_index].regions, regionEnd = region + f->presets[preset_index].regionNum; region != regionEnd; region++)
+	{
+		struct tsf_voice *voice, *v, *vEnd; TSF_BOOL doLoop; float lowpassFilterQDB, lowpassFc;
+		if (key < region->lokey || key > region->hikey || midiVelocity < region->lovel || midiVelocity > region->hivel) continue;
+
+		voice = TSF_NULL, v = f->voices, vEnd = v + f->voiceNum;
+		if (region->group)
+		{
+			for (; v != vEnd; v++)
+				if (v->playingPreset == preset_index && v->region->group == region->group) tsf_voice_endquick(f, v);
+				if (v->playingPreset == -1 && !voice) voice = v;
+		}
+		
+		// Offset/end.
+		tsf_u32 offset = region->offset;
+		tsf_u32 end = (region->end);
+		tsf_u32 size = (end - offset);
+
+		int found = 0;
+		int count = f->samplesInArenaTop;
+
+		for (int i = 0; i<count; i++)
+		{ 
+			if (f->samplesInArena[i] == offset)
+			{
+				found = 1;
+				break;
+			}
+		}
+
+		if (found) continue;
+
+		if (f->samplesInArenaTop == TSF_MAX_SAMPLES_IN_ARENA_LOOKUP || (f->sampleAllocator + (size) * sizeof(float)) >= f->sampleAllocatorCapacity)
+		{
+			ERRORLOG("Too many samples loaded for this %d %d", f->samplesInArenaTop, (f->sampleAllocator + (size) * sizeof(float)));
+			continue;
+		}
+
+		f->samplesInArena[f->samplesInArenaTop++] = offset;
+
+		int outPtr = (f->sampleAllocator)/sizeof(float);
+
+		f->sampleAllocator += (size) * sizeof(float);
+
+		//DEBUGLOG("%d %d %d %d", offset, size, outPtr, huh);
+
+		short* in  = (short*)(f->samplePtr) + offset;
+		
+		float* res, *out; 
+
+		for (res = f->fontSamples + outPtr, out = (f->fontSamples + (outPtr + size)); out != res;)
+			*(res++) = (float)(*(in++) / 32767.0);
+
+		region->bufferLookup = (outPtr);
+		region->bufferEnd = (f->sampleAllocator) / sizeof(float);
+		region->loopBufferStart = region->bufferLookup + (region->loop_start - offset);
+		region->loopBufferEnd = region->bufferLookup + (region->loop_end - offset);
+	}
+
 	return 1;
 }
 
@@ -1868,6 +1978,13 @@ TSFDEF int tsf_channel_note_on(tsf* f, int channel, int key, float vel)
 	if (!f->channels || channel >= f->channels->channelNum) return 1;
 	f->channels->activeChannel = channel;
 	return tsf_note_on(f, f->channels->channels[channel].presetIndex, key, vel);
+}
+
+TSFDEF int tsf_channel_note_allocate(tsf* f, int channel, int key, float vel)
+{
+	if (!f->channels || channel >= f->channels->channelNum) return 1;
+	f->channels->activeChannel = channel;
+	return tsf_note_allocate(f, f->channels->channels[channel].presetIndex, key, vel);
 }
 
 TSFDEF void tsf_channel_note_off(tsf* f, int channel, int key)
