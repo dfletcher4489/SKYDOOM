@@ -53,10 +53,12 @@ s32 sifTransferID = -1;
 
 int memCardType, memCardFree, memCardFormat;
 extern char doomdir[35];
-extern sceMcTblGetDir saveentries[6];
+extern sceMcTblGetDir saveentries[8];
 boolean useMemCard = false;
 
 Controller mainController;
+
+static u8 SamplesBuffer[5 * SECTOR_SIZE];
 
 #define BUFFERSIZE (44100 * 5) + 400
 int
@@ -64,7 +66,6 @@ main
 ( int		argc,
   char**	argv ) 
 { 
-
     ManagerInfo info;
 
     memset(&info, 0, sizeof(ManagerInfo));
@@ -77,6 +78,12 @@ main
     info.drawBufferSize = 1 << 8;
 
     InitializeSystem(&info);
+    
+    ClearScreen(g_Manager.targetBack, g_Manager.gs_context, 0, 0, 0, 255);
+    StitchDrawBuffer(true);
+    DispatchDrawBuffers();
+    EndFrame(1);
+
     I_InitGraphics();
     int ret;
     LoadMCMANModules(); 
@@ -87,10 +94,7 @@ main
         return -1;
     }
 
-    ClearScreen(g_Manager.targetBack, g_Manager.gs_context, 0xFF, 0, 0, 255);
-    StitchDrawBuffer(true);
-    DispatchDrawBuffers();
-    EndFrame(1);
+    
 
     int memCardRet = mcGetInfo(0 , 0,  &memCardType, &memCardFree, &memCardFormat);
     mcSync(0, NULL, &ret);
@@ -164,11 +168,23 @@ main
 
     Pathify("gzdoom.sf2", buffer);
 
+    sceCdlFILE loc_file_struct;
+
+    bool fileFound = FindFileByName(buffer, &loc_file_struct);
+
+    if (!fileFound) return -1;
+
+    gTsfInstance = tsf_load_file(&loc_file_struct);
+
+    tsf_set_sample_loading_buffer(gTsfInstance, SamplesBuffer, sizeof(SamplesBuffer));
+    
+    /*
     unsigned char *gzsf2 = ReadFileInFull(buffer, &sf2Size);
     
     DEBUGLOG("size of gzdoom %d", sf2Size);
 
     gTsfInstance = tsf_load_memory(gzsf2, sf2Size);
+    */
 
     tsf_set_output(gTsfInstance, TSF_MONO, 22050, 0.0f);
 

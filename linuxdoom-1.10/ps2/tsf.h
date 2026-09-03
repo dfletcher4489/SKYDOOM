@@ -45,6 +45,7 @@
 #ifndef TSF_INCLUDE_TSF_INL
 #define TSF_INCLUDE_TSF_INL
 
+#include "io/ps_file_io.h"
 #include "math/ps_fast_maths.h"
 #ifdef __cplusplus
 extern "C" {
@@ -325,7 +326,7 @@ typedef unsigned int tsf_u32;
 typedef char tsf_char20[20];
 
 #define TSF_FourCCEquals(value1, value2) (value1[0] == value2[0] && value1[1] == value2[1] && value1[2] == value2[2] && value1[3] == value2[3])
-#define TSF_MAX_SAMPLES_IN_ARENA_LOOKUP 24
+
 struct tsf
 {
 	struct tsf_preset* presets;
@@ -346,8 +347,11 @@ struct tsf
 	int sampleAllocator;
 	int sampleAllocatorCapacity;
 	char* samplePtr; 
-	unsigned int samplesInArena[TSF_MAX_SAMPLES_IN_ARENA_LOOKUP]; //offset in arena
 	int samplesInArenaTop;
+	int samplesInArenaCount;
+	sceCdlFILE* filePointer;
+	unsigned char* loadingSamplesBuffer;
+	unsigned int loadingSampleBufferSize;
 };
 
 #ifndef TSF_NO_STDIO
@@ -374,7 +378,90 @@ TSFDEF tsf* tsf_load_filename(const char* filename)
 }
 #endif
 
+#define TSF_PS2IO
+
+#ifdef TSF_PS2IO
+
+typedef struct PS2FileHandle
+{
+	sceCdlFILE *loc_file_struct;
+	unsigned int currentOffsetPtr;
+	unsigned int nextSectorInBytes;
+	unsigned char buffer[SECTOR_SIZE];
+} PS2FileHandle;
+
+static sceCdlFILE* tsf_get_file_pointer(PS2FileHandle* f)
+{
+	return f->loc_file_struct;
+}
+
+static unsigned char* tsf_get_samples_offset_data(PS2FileHandle* f)
+{
+	return NULL;
+}
+
+static tsf_u32 tsf_get_sample_offset(PS2FileHandle* f)
+{
+	return f->currentOffsetPtr;
+}
+
+static int tsf_stream_ps2_read(PS2FileHandle* f, void* ptr, unsigned int size) 
+{
+	int ret = 0;
+
+	if (f->currentOffsetPtr >= f->nextSectorInBytes)
+	{
+		int startOffset = (f->currentOffsetPtr >> 11) << 11;
+
+		ret = ReadFileBytes(f->loc_file_struct, f->buffer, startOffset, SECTOR_SIZE);  
+
+		f->nextSectorInBytes += ret;
+	}
+
+	int offset = (f->currentOffsetPtr & (SECTOR_SIZE-1));
+
+	memcpy(ptr, f->buffer+offset, size);
+
+	f->currentOffsetPtr += size;
+
+	return size; 
+}
+
+static int tsf_stream_ps2_skip(PS2FileHandle* f, unsigned int count) { 
+	DEBUGLOG("%d %d", f->currentOffsetPtr, count);
+	f->currentOffsetPtr += count; 
+	return 1; 
+}
+TSFDEF tsf* tsf_load_file(sceCdlFILE *loc_file_struct)
+{
+	tsf* res;
+	struct PS2FileHandle ps2FileHandle;
+	struct tsf_stream stream = { TSF_NULL, (int(*)(void*,void*,unsigned int))&tsf_stream_ps2_read, (int(*)(void*,unsigned int))&tsf_stream_ps2_skip };
+	ps2FileHandle.loc_file_struct = loc_file_struct;
+	ps2FileHandle.currentOffsetPtr = 0;
+	ps2FileHandle.nextSectorInBytes = 0;
+	stream.data = &ps2FileHandle;
+	res = tsf_load(&stream);
+	return res;
+}
+#else
 struct tsf_stream_memory { const char* buffer; unsigned int total, pos; };
+
+static sceCdlFILE* tsf_get_file_pointer(struct tsf_stream_memory* f)
+{
+	return NULL;
+}
+
+static unsigned char* tsf_get_samples_offset_data(struct tsf_stream_memory* f)
+{
+	return (unsigned char*)(f->buffer + f->pos);
+}
+
+static tsf_u32 tsf_get_sample_offset(struct tsf_stream_memory* f)
+{
+	return f->pos;
+}
+
 static int tsf_stream_memory_read(struct tsf_stream_memory* m, void* ptr, unsigned int size) { if (size > m->total - m->pos) size = m->total - m->pos; TSF_MEMCPY(ptr, m->buffer+m->pos, size); m->pos += size; return size; }
 static int tsf_stream_memory_skip(struct tsf_stream_memory* m, unsigned int count) { if (m->pos + count > m->total) return 0; m->pos += count; return 1; }
 TSFDEF tsf* tsf_load_memory(const void* buffer, int size)
@@ -386,6 +473,8 @@ TSFDEF tsf* tsf_load_memory(const void* buffer, int size)
 	stream.data = &f;
 	return tsf_load(&stream);
 }
+
+#endif
 
 enum { TSF_LOOPMODE_NONE, TSF_LOOPMODE_CONTINUOUS, TSF_LOOPMODE_SUSTAIN };
 
@@ -447,6 +536,7 @@ struct tsf_region
 	unsigned int bufferEnd;
 	unsigned int loopBufferStart;
 	unsigned int loopBufferEnd;
+	int bufferId;
 };
 
 struct tsf_preset
@@ -835,6 +925,7 @@ static int tsf_load_presets(tsf* res, struct tsf_hydra *hydra, unsigned int font
 								zoneRegion.end += pshdr->end;
 								zoneRegion.loop_start += pshdr->startLoop;
 								zoneRegion.loop_end += pshdr->endLoop;
+								zoneRegion.bufferId = -1;
 								if (pshdr->endLoop > 0) zoneRegion.loop_end -= 1;
 								if (zoneRegion.loop_end > fontSampleCount) zoneRegion.loop_end = fontSampleCount;
 								if (zoneRegion.pitch_keycenter == -1) zoneRegion.pitch_keycenter = pshdr->originalPitch;
@@ -1339,6 +1430,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 	tsf_u32 samplePos = 0;
 	tsf_u32 sampleArenaCapacity;
 	char* samplePtr = TSF_NULL;
+	sceCdlFILE* filePtr = TSF_NULL;
 
 	if (!tsf_riffchunk_read(TSF_NULL, &chunkHead, stream) || !TSF_FourCCEquals(chunkHead.id, "sfbk"))
 	{
@@ -1386,8 +1478,9 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 						#endif
 					) && !rawBuffer && !floatBuffer && chunk.size >= sizeof(short))
 				{
-					samplePos = ((struct tsf_stream_memory*)stream->data)->pos;
-					samplePtr = ((struct tsf_stream_memory*)stream->data)->buffer + samplePos;
+					samplePos = tsf_get_sample_offset(stream->data);
+					samplePtr = tsf_get_samples_offset_data(stream->data);
+					filePtr = tsf_get_file_pointer(stream->data);
 					sampleArenaCapacity = 200 * 1024 * sizeof(float);
 			
 					floatBuffer = (float*)TSF_MALLOC(sampleArenaCapacity);
@@ -1422,6 +1515,8 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 		res->samplePtr = samplePtr;
 		res->sampleAllocatorCapacity = sampleArenaCapacity;
 		res->samplesInArenaTop = 0;
+		res->samplesInArenaCount = 0;
+		res->filePointer = filePtr;
 		floatBuffer = TSF_NULL; // don't free below
 	}
 	if (0)
@@ -1641,8 +1736,16 @@ TSFDEF int tsf_note_on(tsf* f, int preset_index, int key, float vel)
 
 TSFDEF int tsf_clear_sample_allocator(tsf* f)
 {
-	f->samplesInArenaTop = 0;
+	f->samplesInArenaTop += f->samplesInArenaCount;
+	f->samplesInArenaCount = 0;
 	f->sampleAllocator = 0;
+	return 1;
+}
+
+TSFDEF int tsf_set_sample_loading_buffer(tsf* f, void* sampleReadBuffer, int size)
+{
+	f->loadingSamplesBuffer = sampleReadBuffer;
+	f->loadingSampleBufferSize = size;
 	return 1;
 }
 
@@ -1675,43 +1778,80 @@ TSFDEF int tsf_note_allocate(tsf* f, int preset_index, int key, float vel)
 		tsf_u32 end = (region->end);
 		tsf_u32 size = (end - offset);
 
-		int found = 0;
-		int count = f->samplesInArenaTop;
+		int id = region->bufferId;
+		int top = f->samplesInArenaTop;
+		int count = f->samplesInArenaCount;
 
-		for (int i = 0; i<count; i++)
-		{ 
-			if (f->samplesInArena[i] == offset)
-			{
-				found = 1;
-				break;
-			}
-		}
+		if (id >= top && id < (top+count))
+		 	continue;
 
-		if (found) continue;
-
-		if (f->samplesInArenaTop == TSF_MAX_SAMPLES_IN_ARENA_LOOKUP || (f->sampleAllocator + (size) * sizeof(float)) >= f->sampleAllocatorCapacity)
+		if ((f->sampleAllocator + (size)) >= (f->sampleAllocatorCapacity/sizeof(float)))
 		{
-			ERRORLOG("Too many samples loaded for this %d %d", f->samplesInArenaTop, (f->sampleAllocator + (size) * sizeof(float)));
+			ERRORLOG("Too many samples loaded for this %d %d", (f->sampleAllocator + (size)), (f->sampleAllocatorCapacity/sizeof(float)));
 			continue;
 		}
 
-		f->samplesInArena[f->samplesInArenaTop++] = offset;
-
-		int outPtr = (f->sampleAllocator)/sizeof(float);
-
-		f->sampleAllocator += (size) * sizeof(float);
-
-		//DEBUGLOG("%d %d %d %d", offset, size, outPtr, huh);
-
-		short* in  = (short*)(f->samplePtr) + offset;
+		region->bufferId = (top + f->samplesInArenaCount++);
 		
-		float* res, *out; 
+		int outPtr = f->sampleAllocator;
 
-		for (res = f->fontSamples + outPtr, out = (f->fontSamples + (outPtr + size)); out != res;)
-			*(res++) = (float)(*(in++) / 32767.0);
+		f->sampleAllocator += size;
 
-		region->bufferLookup = (outPtr);
-		region->bufferEnd = (f->sampleAllocator) / sizeof(float);
+		if (f->samplePtr)
+		{
+			short* in = (short*)(f->samplePtr) + offset;
+		
+			float* res, *out; 
+
+			for (res = f->fontSamples + outPtr, out = (f->fontSamples + (outPtr + size)); out != res;)
+				*(res++) = (float)(*(in++) / 32767.0);
+		}
+		else if (f->filePointer)
+		{
+			int totalBytesReadSize = size * sizeof(short);
+			int currentByteOffset = (region->offset * sizeof(short)) + f->samplesOffsetInFile;
+
+			int currentSectorStart = (currentByteOffset >> 11) << 11; 
+
+			int bufferSize = f->loadingSampleBufferSize;
+
+			float* res = f->fontSamples + outPtr;
+
+			int offset = (currentByteOffset - currentSectorStart);
+
+			short* in = (short*)(f->loadingSamplesBuffer + offset);
+
+			while(totalBytesReadSize > 0)
+			{
+				int readSize = bufferSize;
+
+				if (readSize > totalBytesReadSize)
+					readSize = totalBytesReadSize;
+
+				int currBytesRead = ReadBytesDirect(f->filePointer, f->loadingSamplesBuffer, currentSectorStart, readSize);
+
+				currentSectorStart += currBytesRead;
+
+				int actualBytesRead = currBytesRead - offset;
+
+				if (actualBytesRead > totalBytesReadSize)
+				{
+					actualBytesRead = totalBytesReadSize;
+				}
+
+				totalBytesReadSize -= (actualBytesRead);
+
+				for (; actualBytesRead; actualBytesRead-=2)
+					*(res++) = (float)(*(in++) / 32767.0);
+
+				in = (short*)(f->loadingSamplesBuffer);
+
+				offset = 0;
+			}
+		}
+
+		region->bufferLookup = outPtr;
+		region->bufferEnd = f->sampleAllocator;
 		region->loopBufferStart = region->bufferLookup + (region->loop_start - offset);
 		region->loopBufferEnd = region->bufferLookup + (region->loop_end - offset);
 	}
@@ -1768,7 +1908,6 @@ TSFDEF int tsf_active_voice_count(tsf* f)
 	for (; v != vEnd; v++) if (v->playingPreset != -1) count++;
 	return count;
 }
-#include "math/ps_vector.h"
 
 TSFDEF void tsf_render_short(tsf* f, short* buffer, int samples, int flag_mixing)
 {
@@ -1787,11 +1926,7 @@ TSFDEF void tsf_render_short(tsf* f, short* buffer, int samples, int flag_mixing
 		{
 			float v = *floatSamples++;
 			*buffer++ = (v < -1.00004566f ? (short)-32768 : (v > 1.00001514f ? (short)32767 : (short)(v * 32767.5f)));
-
 		}
-
-		
-
 	}
 }
 

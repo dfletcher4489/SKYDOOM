@@ -357,6 +357,4 @@ void I_InitGraphics(void)
     } 
 
     CreateTexStructs(&image, PS2_TEXTURE_SIZE_X, PS2_TEXTURE_SIZE_Y, image.psm, components, TEXTURE_FUNCTION_MODULATE, PS_FILTER_BILINEAR);
-
-	timestart = timeend = getTicks(g_Manager.timer);
 }
