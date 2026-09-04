@@ -61,6 +61,8 @@ extern "C" {
 #define TSFDEF extern
 #endif
 
+#define TSF_PS2IO
+
 // The load functions will return a pointer to a struct tsf which all functions
 // thereafter take as the first parameter.
 // On error the tsf_load* functions will return NULL most likely due to invalid
@@ -74,6 +76,10 @@ TSFDEF tsf* tsf_load_filename(const char* filename);
 
 // Load a SoundFont from a block of memory
 TSFDEF tsf* tsf_load_memory(const void* buffer, int size);
+
+#ifndef TSF_PS2IO
+TSFDEF tsf* tsf_load_file(sceCdlFILE* file);
+#endif
 
 // Stream structure for the generic loading
 struct tsf_stream
@@ -378,17 +384,15 @@ TSFDEF tsf* tsf_load_filename(const char* filename)
 }
 #endif
 
-#define TSF_PS2IO
-
 #ifdef TSF_PS2IO
-
-typedef struct PS2FileHandle
+typedef struct PS2FileHandle 
 {
+	unsigned char* buffer;
 	sceCdlFILE *loc_file_struct;
 	unsigned int currentOffsetPtr;
 	unsigned int nextSectorInBytes;
-	unsigned char buffer[SECTOR_SIZE];
-} PS2FileHandle;
+	unsigned int bufferSize;
+}  PS2FileHandle;
 
 static sceCdlFILE* tsf_get_file_pointer(PS2FileHandle* f)
 {
@@ -411,14 +415,14 @@ static int tsf_stream_ps2_read(PS2FileHandle* f, void* ptr, unsigned int size)
 
 	if (f->currentOffsetPtr >= f->nextSectorInBytes)
 	{
-		int startOffset = (f->currentOffsetPtr >> 11) << 11;
+		int startOffset = (f->currentOffsetPtr / f->bufferSize) * f->bufferSize;
 
-		ret = ReadFileBytes(f->loc_file_struct, f->buffer, startOffset, SECTOR_SIZE);  
+		ret = ReadBytesDirect(f->loc_file_struct, f->buffer, startOffset, f->bufferSize);  
 
-		f->nextSectorInBytes += ret;
+		f->nextSectorInBytes = (startOffset + ret);
 	}
 
-	int offset = (f->currentOffsetPtr & (SECTOR_SIZE-1));
+	int offset = (f->currentOffsetPtr % f->bufferSize);
 
 	memcpy(ptr, f->buffer+offset, size);
 
@@ -427,23 +431,28 @@ static int tsf_stream_ps2_read(PS2FileHandle* f, void* ptr, unsigned int size)
 	return size; 
 }
 
-static int tsf_stream_ps2_skip(PS2FileHandle* f, unsigned int count) { 
-	DEBUGLOG("%d %d", f->currentOffsetPtr, count);
+static int tsf_stream_ps2_skip(PS2FileHandle* f, unsigned int count) 
+{ 
 	f->currentOffsetPtr += count; 
 	return 1; 
 }
+
 TSFDEF tsf* tsf_load_file(sceCdlFILE *loc_file_struct)
 {
 	tsf* res;
-	struct PS2FileHandle ps2FileHandle;
+	struct PS2FileHandle ps2FileHandle __attribute__((aligned(128)));
 	struct tsf_stream stream = { TSF_NULL, (int(*)(void*,void*,unsigned int))&tsf_stream_ps2_read, (int(*)(void*,unsigned int))&tsf_stream_ps2_skip };
 	ps2FileHandle.loc_file_struct = loc_file_struct;
 	ps2FileHandle.currentOffsetPtr = 0;
 	ps2FileHandle.nextSectorInBytes = 0;
+	ps2FileHandle.bufferSize = 5*SECTOR_SIZE;
+	ps2FileHandle.buffer = (unsigned char*)memalign(128, (ps2FileHandle.bufferSize));
 	stream.data = &ps2FileHandle;
 	res = tsf_load(&stream);
+	TSF_FREE(ps2FileHandle.buffer);
 	return res;
 }
+
 #else
 struct tsf_stream_memory { const char* buffer; unsigned int total, pos; };
 
@@ -1770,7 +1779,7 @@ TSFDEF int tsf_note_allocate(tsf* f, int preset_index, int key, float vel)
 		{
 			for (; v != vEnd; v++)
 				if (v->playingPreset == preset_index && v->region->group == region->group) tsf_voice_endquick(f, v);
-				if (v->playingPreset == -1 && !voice) voice = v;
+				else if (v->playingPreset == -1 && !voice) voice = v;
 		}
 		
 		// Offset/end.
@@ -1835,9 +1844,7 @@ TSFDEF int tsf_note_allocate(tsf* f, int preset_index, int key, float vel)
 				int actualBytesRead = currBytesRead - offset;
 
 				if (actualBytesRead > totalBytesReadSize)
-				{
 					actualBytesRead = totalBytesReadSize;
-				}
 
 				totalBytesReadSize -= (actualBytesRead);
 

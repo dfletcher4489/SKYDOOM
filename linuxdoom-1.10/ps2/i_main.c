@@ -96,10 +96,10 @@ main
 
     
 
-    int memCardRet = mcGetInfo(0 , 0,  &memCardType, &memCardFree, &memCardFormat);
+    int memCardRet = mcGetInfo(0 , 0, &memCardType, &memCardFree, &memCardFormat);
     mcSync(0, NULL, &ret);
 
-    memCardRet = mcGetInfo(0 , 0,  &memCardType, &memCardFree, &memCardFormat);
+    memCardRet = mcGetInfo(0 , 0, &memCardType, &memCardFree, &memCardFormat);
     mcSync(0, NULL, &ret);
 
     if (!ret)
