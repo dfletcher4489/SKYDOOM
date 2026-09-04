@@ -19,7 +19,6 @@ IOP_INC_DIR = ./include
 include $(PS2SDK)/samples/Makefile.pref
 include ./Makefile.iopglobal
 
-
 all:: $(IOP_BIN_DIR) $(IOP_OBJS_DIR) $(IOP_BIN)
 
 $(IOP_BIN_DIR):

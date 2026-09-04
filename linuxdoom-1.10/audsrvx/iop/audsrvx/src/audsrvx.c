@@ -86,7 +86,6 @@ static u32 buffer1_has_data = 0;
 static u32 buffer2_has_data = 0;
 static u32 buffer_reset = 0;
 
-
 enum 
 {
 	BUFFER1 = 1,
@@ -160,7 +159,6 @@ int audsrv_set_buffers(char *ptr1, char *ptr2,
 
 int audsrv_transfer_notify(int buffer, int size)
 {
-	
 	if (buffer == BUFFER1)
 	{
 		buffer1_has_data = 1;
@@ -201,6 +199,8 @@ int audsrv_buffers_status()
 
 int audsrv_reset_buffers()
 {
+	memset(buffer1, 0, buffer1_data_size);
+	memset(buffer2, 0, buffer2_data_size);
 	buffer1_has_data = buffer2_has_data = 0;
 	buffer1_data_size = buffer2_data_size = 0;
 	buffer_reset = 1;
@@ -277,9 +277,7 @@ int audsrv_set_format(int freq, int bits, int channels)
 	core1_bits = bits;
 	core1_channels = channels;
 
-	/* set ring buffer size to 10 iterations worth of data (~50 ms) */
 	feed_size = ((512 * core1_freq) / 48000) << core1_sample_shift;
-	//ringbuf_size = feed_size * 10;
 
 	writepos = 0;
 	readpos = (feed_size * 5) & ~3;
@@ -446,8 +444,6 @@ int audsrv_set_volume(int vol)
 
 int audsrv_set_threshold(int amount)
 {
-
-	printf("audsrv: callback threshold: %d\n", amount);
 	fillbuf_threshold = amount;
 	return 0;
 }
@@ -505,20 +501,20 @@ static void play_thread(void *arg)
 			
 			readpos = readpos + step;
 
-			
 			if (readpos >= *buffer_size)
 			{
-				
 				readpos = 0;
 				if (buffer_in_use)
 				{
 					buffer_in_use = 0;
-					source = (char *)buffer1;
+					source = buffer1;
 					buffer_size = &buffer1_data_size;
 					buffer2_has_data = 0;
-				} else {
+				} 
+				else 
+				{
 					buffer_in_use = 1;
-					source = (char *)buffer2;
+					source = buffer2;
 					buffer_size = &buffer2_data_size;
 					buffer1_has_data = 0;
 				} 
@@ -548,23 +544,6 @@ static void play_thread(void *arg)
 		wmemcpy(bufptr + 1536, rendered_right + 256, 512);
 
 		CpuResumeIntr(intr_state);
-
-		//available = audsrv_available();
-		//if (available >= (ringbuf_size / 10))
-		//{
-			/* arbitrarily selected ringbuf_size / 10, to reduce
-			 * number of semaphores signalled.
-			 */
-			//SignalSema(queue_sema);
-		//}
-
-		//if (fillbuf_threshold > 0 && available >= fillbuf_threshold)
-		//{
-			/* EE client requested a callback */
-		//	call_client_callback(AUDSRV_FILLBUF_CALLBACK);
-		//}
-
-		//printf("avaiable: %d, queued: %d\n", available, ringbuf_size - available);
 	}
 }
 

@@ -70,7 +70,6 @@ DIR_GUARD = @$(MKDIR) -p $(@D)
 
 $(IOP_OBJS_DIR)/%.o: $(IOP_SRC_DIR)/%.c
 	$(DIR_GUARD)
-	$(ECHO) "Hello"
 	$(IOP_C_COMPILE) -c $< -o $@
 
 $(IOP_OBJS_DIR)/%.o: $(IOP_SRC_DIR)/%.S

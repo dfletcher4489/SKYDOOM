@@ -62,6 +62,7 @@ extern "C" {
 #endif
 
 #define TSF_PS2IO
+#define TSF_SAMPLECACHECOUNT 200 * 1024
 
 // The load functions will return a pointer to a struct tsf which all functions
 // thereafter take as the first parameter.
@@ -336,7 +337,7 @@ typedef char tsf_char20[20];
 struct tsf
 {
 	struct tsf_preset* presets;
-	float* fontSamples;
+	short* fontSamples;
 	struct tsf_voice* voices;
 	struct tsf_channels* channels;
 
@@ -1332,7 +1333,7 @@ static void tsf_voice_calcpitchratio(struct tsf_voice* v, float pitchShift, floa
 static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, int numSamples)
 {
 	struct tsf_region* region = v->region;
-	float* input = f->fontSamples;
+	short* input = f->fontSamples;
 	float* outL = outputBuffer;
 
 	if (!region)
@@ -1366,6 +1367,8 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 	if (dynamicGain) tmpModLfoToVolume = (float)region->modLfoToVolume * 0.1f;
 	else noteGain = tsf_decibelsToGain(v->noteGainDB), tmpModLfoToVolume = 0;
 	//DEBUGLOG("noteGain %f\n", getTicks(g_Manager.timer)-time1);
+
+	const float SHORT_TO_FLOAT = 1.0f / 32767.0;
 	while (numSamples)
 	{
 		float gainMono, gainLeft, gainRight;
@@ -1400,8 +1403,11 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 		{
 			unsigned int pos = (unsigned int)tmpSourceSamplePosition, nextPos = (pos >= tmpLoopEnd && isLooping ? tmpLoopStart : pos + 1);
 
+			float input1 = ((float)input[pos] * SHORT_TO_FLOAT);
+
+			float input2 = ((float)input[nextPos] * SHORT_TO_FLOAT);
 			// Simple linear interpolation.
-			float alpha = (float)(tmpSourceSamplePosition - pos), val = (input[pos] * (1.0f - alpha) + input[nextPos] * alpha);
+			float alpha = (float)(tmpSourceSamplePosition - pos), val = (input1 * (1.0f - alpha) + input2 * alpha);
 
 			// Low-pass filter.
 			//if (tmpLowpass.active)
@@ -1434,7 +1440,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 	struct tsf_riffchunk chunkList;
 	struct tsf_hydra hydra;
 	void* rawBuffer = TSF_NULL;
-	float* floatBuffer = TSF_NULL;
+	short* shortBuffer = TSF_NULL;
 	tsf_u32 smplCount = 0;
 	tsf_u32 samplePos = 0;
 	tsf_u32 sampleArenaCapacity;
@@ -1485,14 +1491,14 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 						#ifdef STB_VORBIS_INCLUDE_STB_VORBIS_H
 						|| TSF_FourCCEquals(chunk.id, "smpo")
 						#endif
-					) && !rawBuffer && !floatBuffer && chunk.size >= sizeof(short))
+					) && !rawBuffer && !shortBuffer && chunk.size >= sizeof(short))
 				{
 					samplePos = tsf_get_sample_offset(stream->data);
 					samplePtr = tsf_get_samples_offset_data(stream->data);
 					filePtr = tsf_get_file_pointer(stream->data);
-					sampleArenaCapacity = 200 * 1024 * sizeof(float);
+					sampleArenaCapacity = TSF_SAMPLECACHECOUNT * sizeof(short);
 			
-					floatBuffer = (float*)TSF_MALLOC(sampleArenaCapacity);
+					shortBuffer = (float*)TSF_MALLOC(sampleArenaCapacity);
 					smplCount = chunk.size / (unsigned int)sizeof(short);
 				}
 				
@@ -1505,20 +1511,20 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 	{
 		//if (e) *e = TSF_INVALID_INCOMPLETE;
 	}
-	else if (!rawBuffer && !floatBuffer)
+	else if (!rawBuffer && !shortBuffer)
 	{
 		//if (e) *e = TSF_INVALID_NOSAMPLEDATA;
 	}
 	else
 	{
 		#ifdef STB_VORBIS_INCLUDE_STB_VORBIS_H
-		if (!floatBuffer && !tsf_decode_sf3_samples(rawBuffer, &floatBuffer, &smplCount, &hydra)) goto out_of_memory;
+		//if (!floatBuffer && !tsf_decode_sf3_samples(rawBuffer, &floatBuffer, &smplCount, &hydra)) goto out_of_memory;
 		#endif
 		res = (tsf*)TSF_MALLOC(sizeof(tsf));
 		if (res) TSF_MEMSET(res, 0, sizeof(tsf));
 		if (!res || !tsf_load_presets(res, &hydra, smplCount)) goto out_of_memory;
 		res->outSampleRate = 44100.0f;
-		res->fontSamples = floatBuffer;
+		res->fontSamples = shortBuffer;
 		res->samplesOffsetInFile = samplePos;
 		res->sampleAllocator = 0;
 		res->samplePtr = samplePtr;
@@ -1526,7 +1532,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 		res->samplesInArenaTop = 0;
 		res->samplesInArenaCount = 0;
 		res->filePointer = filePtr;
-		floatBuffer = TSF_NULL; // don't free below
+		shortBuffer = TSF_NULL; // don't free below
 	}
 	if (0)
 	{
@@ -1538,7 +1544,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 	TSF_FREE(hydra.phdrs); TSF_FREE(hydra.pbags); TSF_FREE(hydra.pmods);
 	TSF_FREE(hydra.pgens); TSF_FREE(hydra.insts); TSF_FREE(hydra.ibags);
 	TSF_FREE(hydra.imods); TSF_FREE(hydra.igens); TSF_FREE(hydra.shdrs);
-	TSF_FREE(rawBuffer);   TSF_FREE(floatBuffer);
+	TSF_FREE(rawBuffer);   TSF_FREE(shortBuffer);
 	return res;
 }
 
@@ -1794,9 +1800,9 @@ TSFDEF int tsf_note_allocate(tsf* f, int preset_index, int key, float vel)
 		if (id >= top && id < (top+count))
 		 	continue;
 
-		if ((f->sampleAllocator + (size)) >= (f->sampleAllocatorCapacity/sizeof(float)))
+		if ((f->sampleAllocator + (size)) >= (f->sampleAllocatorCapacity/sizeof(short)))
 		{
-			ERRORLOG("Too many samples loaded for this %d %d", (f->sampleAllocator + (size)), (f->sampleAllocatorCapacity/sizeof(float)));
+			ERRORLOG("Too many samples loaded for this %d %d", (f->sampleAllocator + (size)), (f->sampleAllocatorCapacity/sizeof(short)));
 			continue;
 		}
 
@@ -1810,10 +1816,10 @@ TSFDEF int tsf_note_allocate(tsf* f, int preset_index, int key, float vel)
 		{
 			short* in = (short*)(f->samplePtr) + offset;
 		
-			float* res, *out; 
+			short* res, *out; 
 
 			for (res = f->fontSamples + outPtr, out = (f->fontSamples + (outPtr + size)); out != res;)
-				*(res++) = (float)(*(in++) / 32767.0);
+				*(res++) = *(in++);
 		}
 		else if (f->filePointer)
 		{
@@ -1824,7 +1830,7 @@ TSFDEF int tsf_note_allocate(tsf* f, int preset_index, int key, float vel)
 
 			int bufferSize = f->loadingSampleBufferSize;
 
-			float* res = f->fontSamples + outPtr;
+			short* res = f->fontSamples + outPtr;
 
 			int offset = (currentByteOffset - currentSectorStart);
 
@@ -1849,7 +1855,7 @@ TSFDEF int tsf_note_allocate(tsf* f, int preset_index, int key, float vel)
 				totalBytesReadSize -= (actualBytesRead);
 
 				for (; actualBytesRead; actualBytesRead-=2)
-					*(res++) = (float)(*(in++) / 32767.0);
+					*(res++) = *(in++);
 
 				in = (short*)(f->loadingSamplesBuffer);
 
