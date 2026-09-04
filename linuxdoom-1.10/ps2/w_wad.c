@@ -47,7 +47,8 @@ static const char
 #include "local_lmps.h"
 
 #include "log/ps_log.h"
-
+#include "io/ps_file_io.h"
+#include "util/ps_misc.h"
 //
 // GLOBALS
 //
@@ -57,6 +58,15 @@ lumpinfo_t *lumpinfo;
 int numlumps;
 
 void **lumpcache;
+
+#define WAD_CACHE_SIZE (40*SECTOR_SIZE) 
+
+static sceCdlFILE mainwad;
+static int wadOffsetPointer = 0;
+static int wadCachePointer = 0;
+static char wadReadCache[WAD_CACHE_SIZE];
+static int cachehits = 0;
+static int cachemisses = 0;
 
 #define strcmpi strcasecmp
 
@@ -106,6 +116,83 @@ void ExtractFileBase(char *path,
     }
 }
 
+static int wad_read(sceCdlFILE* file, void* ptr, int size)
+{
+  //  if (((cachehits + cachemisses) % 100) == 0)
+    {
+     //   DEBUGLOG("hits=%d misses=%d", cachehits, cachemisses);
+    }
+
+    if (size >= WAD_CACHE_SIZE 
+        || wadOffsetPointer >= wadCachePointer 
+        || wadOffsetPointer < (wadCachePointer - WAD_CACHE_SIZE) 
+        || (wadOffsetPointer+size) > wadCachePointer
+    )
+    {
+        cachemisses++;
+        char* outPtr = ptr;
+
+        int offset = (wadOffsetPointer % WAD_CACHE_SIZE);
+
+        int startOffset = (wadOffsetPointer / WAD_CACHE_SIZE) *  WAD_CACHE_SIZE;
+
+        int inSize = size;
+
+        while(inSize > 0)
+        {
+            int ret = ReadBytesDirect(file, wadReadCache, startOffset, WAD_CACHE_SIZE);
+
+            int readSize = (WAD_CACHE_SIZE-offset);
+
+            if (inSize < readSize)
+            {
+                readSize = inSize;    
+            }
+            
+            memcpy(outPtr, wadReadCache+offset, readSize);
+
+            outPtr += readSize;
+
+            inSize -= readSize;
+
+            startOffset += WAD_CACHE_SIZE;
+            
+            offset = 0;
+        }
+
+        wadCachePointer = startOffset;
+
+        wadOffsetPointer += size;
+
+	    return size;
+    }
+
+    cachehits++;
+
+	int offset = (wadOffsetPointer % WAD_CACHE_SIZE);
+
+	memcpy(ptr, wadReadCache+offset, size);
+
+	wadOffsetPointer += size;
+
+	return size;
+}
+
+static int wad_seek(int count, int type)
+{
+   // DEBUGLOG("HERE SEEK %d %d %d", wadOffsetPointer, wadCachePointer, count);
+
+    if (type == 1)
+    {
+        wadOffsetPointer = count;
+    }
+    else if (type == 2)
+    {
+        wadOffsetPointer += count;
+    }
+    return 0;
+}
+
 //
 // LUMP BASED ROUTINES.
 //
@@ -148,7 +235,11 @@ void W_AddFile(char *filename)
         reloadlump = numlumps;
     }
 
-    if ((handle = open(filename, O_RDONLY | O_BINARY)) == -1)
+    Pathify(filename, wadReadCache);
+
+    bool fileFound = FindFileByName(wadReadCache, &mainwad);
+
+    if (fileFound == false)
     {
         printf(" couldn't open %s\n", filename);
         return;
@@ -169,7 +260,9 @@ void W_AddFile(char *filename)
     else
     {
         // WAD file
-        read(handle, &header, sizeof(header));
+        wad_read(&mainwad, &header, sizeof(header));
+
+        //read(handle, &header, sizeof(header));
         if (strncmp(header.identification, "IWAD", 4))
         {
             // Homebrew levels?
@@ -186,8 +279,10 @@ void W_AddFile(char *filename)
         header.infotableofs = LONG(header.infotableofs);
         length = header.numlumps * sizeof(filelump_t);
         fileinfo = alloca(length);
-        lseek(handle, header.infotableofs, SEEK_SET);
-        read(handle, fileinfo, length);
+        //lseek(handle, header.infotableofs, SEEK_SET);
+        wad_seek(header.infotableofs, 1);
+        //read(handle, fileinfo, length);
+        wad_read(&mainwad, fileinfo, length);
         numlumps += header.numlumps;
     }
 
@@ -199,7 +294,7 @@ void W_AddFile(char *filename)
 
     lump_p = &lumpinfo[startlump];
 
-    storehandle = reloadname ? -1 : handle;
+    storehandle = reloadname ? -1 : 1001;
 
     for (i = startlump; i < numlumps; i++, lump_p++, fileinfo++)
     {
@@ -209,8 +304,8 @@ void W_AddFile(char *filename)
         strncpy(lump_p->name, fileinfo->name, 8);
     }
 
-    if (reloadname)
-        close(handle);
+    //if (reloadname)
+        //close(handle);
 }
 
 //
@@ -430,21 +525,22 @@ void W_ReadLump(int lump,
     if (l->handle == -1)
     {
         // reloadable file, so use open / read / close
-        if ((handle = open(reloadname, O_RDONLY | O_BINARY)) == -1)
+        //if ((handle = open(reloadname, O_RDONLY | O_BINARY)) == -1)
             I_Error("W_ReadLump: couldn't open %s", reloadname);
     }
-    else
-        handle = l->handle;
+   // else
+      //  handle = l->handle;
 
-    lseek(handle, l->position, SEEK_SET);
-    c = read(handle, dest, l->size);
+    //lseek(handle, l->position, SEEK_SET);
+    wad_seek(l->position, 1);
+    c = wad_read(&mainwad, dest, l->size);
 
-    if (c < l->size)
-        I_Error("W_ReadLump: only read %i of %i on lump %i",
-                c, l->size, lump);
+   // if (c < l->size)
+     //   I_Error("W_ReadLump: only read %i of %i on lump %i",
+       //         c, l->size, lump);
 
-    if (l->handle == -1)
-        close(handle);
+   // if (l->handle == -1)
+       // close(handle);
 
     // ??? I_EndRead ();
 }
