@@ -479,6 +479,8 @@ void I_PlaySong(int handle, int looping)
   g_Msec = 0;
   g_MidiMessage = playingMusic.midimessage;
 
+  tsf_reset(gTsfInstance);
+  tsf_channel_set_bank_preset(gTsfInstance, 9, 128, 0);
   tsf_clear_sample_allocator(gTsfInstance);
 
   for (; g_MidiMessage; g_MidiMessage = g_MidiMessage->next)
@@ -494,12 +496,6 @@ void I_PlaySong(int handle, int looping)
       case TML_NOTE_OFF: // stop a note
         tsf_channel_note_off(gTsfInstance, g_MidiMessage->channel, g_MidiMessage->key);
         break;
-      case TML_PITCH_BEND: // pitch wheel modification
-        tsf_channel_set_pitchwheel(gTsfInstance, g_MidiMessage->channel, g_MidiMessage->pitch_bend);
-        break;
-      case TML_CONTROL_CHANGE: // MIDI controller messages
-        tsf_channel_midi_control(gTsfInstance, g_MidiMessage->channel, g_MidiMessage->control, g_MidiMessage->control_value);
-        break;
     }  
   }
 
@@ -507,10 +503,8 @@ void I_PlaySong(int handle, int looping)
 
   handle = looping = 0;
   musicdies = gametic + TICRATE * 30;
-  tsf_reset(gTsfInstance);
-  tsf_channel_set_bank_preset(gTsfInstance, 9, 128, 0);
   playing = false;
-  for (int i = 0; i<sizeof(dblBuffer); i+=(5*470))
+  for (int i = 0; i< sizeof(dblBuffer); i+=(5*470))
     I_RenderSamples(5*470);
 }
 
@@ -602,10 +596,14 @@ void I_CheckBufferIOP(void)
 
       if (bufferToFill != BUFFERBOTH)
       {
-        I_TransferAudio();
-        audsrv_transfer_notify(bufferToFill,  writeCount);
-        writeCount = 0;
+        if (writeCount != 0)
+        {
+          I_TransferAudio();
+          audsrv_transfer_notify(bufferToFill, writeCount);
+          writeCount = 0;
+        }
       }
+
       return;
     }
 
@@ -629,8 +627,14 @@ void I_UpdateMusic(void)
 
   if (!playing)
   {
+    if (writeCount != 0)
+    {
+      I_TransferAudio();
+      audsrv_transfer_notify(BUFFER1, writeCount);
+      writeCount = 0;
+    }
+
     playing = true;
-    audsrv_transfer_notify(BUFFER1, sizeof(dblBuffer));
   } 
 
   I_CheckBufferIOP();
@@ -692,12 +696,14 @@ void I_RenderSamples(int size)
 
   if (writeCount >= sizeof(dblBuffer) && bufferToFill != BUFFERBOTH)
   {
-    I_TransferAudio();
-
     if (playing)
+    {
+      I_TransferAudio();
+
       audsrv_transfer_notify(bufferFilled, writeCount);
 
-    writeCount = 0;
+      writeCount = 0;
+    }
   }
 }
   
