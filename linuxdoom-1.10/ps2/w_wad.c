@@ -32,6 +32,7 @@ static const char
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <alloca.h>
+#include <limits.h>
 #define O_BINARY 0
 
 #include "doomtype.h"
@@ -59,14 +60,58 @@ int numlumps;
 
 void **lumpcache;
 
-#define WAD_CACHE_SIZE (40*SECTOR_SIZE) 
+#define WAD_CACHE_ENTRIES_MAX 10
+#define WAD_CACHE_ENTRY_SIZE (32 * SECTOR_SIZE)
+#define WAD_CACHE_SIZE (WAD_CACHE_ENTRIES_MAX*WAD_CACHE_ENTRY_SIZE) 
 
 static sceCdlFILE mainwad;
 static int wadOffsetPointer = 0;
-static int wadCachePointer = 0;
-static char wadReadCache[WAD_CACHE_SIZE];
+static char wadReadCache[WAD_CACHE_SIZE] __attribute__((aligned(128)));
+
+static u32 lruCacheCtr = 0;
+static u32 wadCacheLRU[WAD_CACHE_ENTRIES_MAX] = {0, 0, 0, 0};
+static u32 wadCacheAddr[WAD_CACHE_ENTRIES_MAX] = {~0, ~0, ~0, ~0};
+
 static int cachehits = 0;
 static int cachemisses = 0;
+
+static int CheckIfInCache(u32 addr, u32 size)
+{
+    int i = 0;
+    for (;i<WAD_CACHE_ENTRIES_MAX; i++)
+    {
+        if (addr >= (wadCacheAddr[i] - WAD_CACHE_ENTRY_SIZE))
+        {
+            if ((addr + size) <= (wadCacheAddr[i]))
+            {
+                wadCacheLRU[i] = lruCacheCtr++;
+                break;
+            }
+        }
+    }
+
+    return i;
+}
+
+static int EvictFromCache()
+{
+    int i = 0;
+    long long max = INT_MIN;
+    int maxi = 0;
+    for (int i = 0;i<WAD_CACHE_ENTRIES_MAX; i++)
+    {
+        long long val = lruCacheCtr-wadCacheLRU[i];
+        if (max < val)
+        {
+            max = val;
+            maxi = i;
+        }
+    }
+
+    wadCacheLRU[maxi] = lruCacheCtr++;
+    
+    return maxi;
+}
 
 #define strcmpi strcasecmp
 
@@ -123,44 +168,87 @@ static int wad_read(sceCdlFILE* file, void* ptr, int size)
      //   DEBUGLOG("hits=%d misses=%d", cachehits, cachemisses);
     }
 
-    if (size >= WAD_CACHE_SIZE 
-        || wadOffsetPointer >= wadCachePointer 
-        || wadOffsetPointer < (wadCachePointer - WAD_CACHE_SIZE) 
-        || (wadOffsetPointer+size) > wadCachePointer
+    int cacheIndex = CheckIfInCache(wadOffsetPointer , size);
+
+    if (size >= WAD_CACHE_ENTRY_SIZE
+        ||  cacheIndex == WAD_CACHE_ENTRIES_MAX 
     )
     {
         cachemisses++;
+
         char* outPtr = ptr;
 
-        int offset = (wadOffsetPointer % WAD_CACHE_SIZE);
+        int offset = (wadOffsetPointer % WAD_CACHE_ENTRY_SIZE);
 
-        int startOffset = (wadOffsetPointer / WAD_CACHE_SIZE) *  WAD_CACHE_SIZE;
+        int startOffset = (wadOffsetPointer / WAD_CACHE_ENTRY_SIZE) *  WAD_CACHE_ENTRY_SIZE;
+
+        cacheIndex = EvictFromCache();
+
+        char* wadcacheLoc = (wadReadCache) + (cacheIndex * WAD_CACHE_ENTRY_SIZE); 
 
         int inSize = size;
 
-        while(inSize > 0)
+        int val = (WAD_CACHE_ENTRY_SIZE-offset);
+
+        if (inSize > WAD_CACHE_ENTRY_SIZE)
         {
-            int ret = ReadBytesDirect(file, wadReadCache, startOffset, WAD_CACHE_SIZE);
+            int ret = ReadBytesDirect(file, wadcacheLoc, startOffset, WAD_CACHE_ENTRY_SIZE); 
 
-            int readSize = (WAD_CACHE_SIZE-offset);
+            memcpy(outPtr, wadcacheLoc+offset, val);
 
-            if (inSize < readSize)
+            inSize -= val;
+
+            outPtr += val;
+
+            startOffset += WAD_CACHE_ENTRY_SIZE;
+
+            while(inSize > WAD_CACHE_ENTRY_SIZE)
             {
-                readSize = inSize;    
+                ret = ReadBytesDirect(file, outPtr, startOffset, WAD_CACHE_ENTRY_SIZE);
+
+                int readSize = (WAD_CACHE_ENTRY_SIZE);
+
+                inSize -= readSize;
+
+                startOffset += readSize;
+
+                outPtr += readSize;
             }
+
+            if (inSize)
+            {
+                ret = ReadBytesDirect(file, wadcacheLoc, startOffset, WAD_CACHE_ENTRY_SIZE);
+                
+                memcpy(outPtr, wadcacheLoc, inSize);
+
+                startOffset += (WAD_CACHE_ENTRY_SIZE);                
+            }
+        }
+        else
+        {
+            val = (val > inSize) ? inSize : val;
+
+            int ret = ReadBytesDirect(file, wadcacheLoc, startOffset, WAD_CACHE_ENTRY_SIZE);
             
-            memcpy(outPtr, wadReadCache+offset, readSize);
+            memcpy(outPtr, wadcacheLoc+offset, val);
 
-            outPtr += readSize;
+            startOffset += WAD_CACHE_ENTRY_SIZE;
 
-            inSize -= readSize;
+            inSize -= val;
 
-            startOffset += WAD_CACHE_SIZE;
-            
-            offset = 0;
+            outPtr += val;
+
+            if (inSize)
+            {
+                ret = ReadBytesDirect(file, wadcacheLoc, startOffset, WAD_CACHE_ENTRY_SIZE);
+                
+                memcpy(outPtr, wadcacheLoc, inSize);
+
+                startOffset += (WAD_CACHE_ENTRY_SIZE);                
+            }
         }
 
-        wadCachePointer = startOffset;
+        wadCacheAddr[cacheIndex] = startOffset;
 
         wadOffsetPointer += size;
 
@@ -169,9 +257,11 @@ static int wad_read(sceCdlFILE* file, void* ptr, int size)
 
     cachehits++;
 
-	int offset = (wadOffsetPointer % WAD_CACHE_SIZE);
+    char* wadcacheLoc = (wadReadCache) + (cacheIndex * WAD_CACHE_ENTRY_SIZE);
 
-	memcpy(ptr, wadReadCache+offset, size);
+	int offset = (wadOffsetPointer % WAD_CACHE_ENTRY_SIZE);
+
+	memcpy(ptr, wadcacheLoc+offset, size);
 
 	wadOffsetPointer += size;
 
@@ -180,8 +270,6 @@ static int wad_read(sceCdlFILE* file, void* ptr, int size)
 
 static int wad_seek(int count, int type)
 {
-   // DEBUGLOG("HERE SEEK %d %d %d", wadOffsetPointer, wadCachePointer, count);
-
     if (type == 1)
     {
         wadOffsetPointer = count;
@@ -279,9 +367,7 @@ void W_AddFile(char *filename)
         header.infotableofs = LONG(header.infotableofs);
         length = header.numlumps * sizeof(filelump_t);
         fileinfo = alloca(length);
-        //lseek(handle, header.infotableofs, SEEK_SET);
         wad_seek(header.infotableofs, 1);
-        //read(handle, fileinfo, length);
         wad_read(&mainwad, fileinfo, length);
         numlumps += header.numlumps;
     }
@@ -303,9 +389,6 @@ void W_AddFile(char *filename)
         lump_p->size = LONG(fileinfo->size);
         strncpy(lump_p->name, fileinfo->name, 8);
     }
-
-    //if (reloadname)
-        //close(handle);
 }
 
 //
@@ -323,7 +406,7 @@ void W_Reload(void)
     int length;
     filelump_t *fileinfo;
 
-    if (!reloadname)
+    if (!reloadname || 1)
         return;
 
     if ((handle = open(reloadname, O_RDONLY | O_BINARY)) == -1)
@@ -524,23 +607,12 @@ void W_ReadLump(int lump,
 
     if (l->handle == -1)
     {
-        // reloadable file, so use open / read / close
-        //if ((handle = open(reloadname, O_RDONLY | O_BINARY)) == -1)
-            I_Error("W_ReadLump: couldn't open %s", reloadname);
+        I_Error("W_ReadLump: couldn't open %s", reloadname);
     }
-   // else
-      //  handle = l->handle;
-
-    //lseek(handle, l->position, SEEK_SET);
+   
     wad_seek(l->position, 1);
     c = wad_read(&mainwad, dest, l->size);
 
-   // if (c < l->size)
-     //   I_Error("W_ReadLump: only read %i of %i on lump %i",
-       //         c, l->size, lump);
-
-   // if (l->handle == -1)
-       // close(handle);
 
     // ??? I_EndRead ();
 }

@@ -58,7 +58,7 @@ boolean useMemCard = false;
 
 Controller mainController;
 
-static u8 SamplesBuffer[5 * SECTOR_SIZE];
+static u8 SamplesBuffer[5 * SECTOR_SIZE] __attribute__((aligned(128)));
 
 #define BUFFERSIZE (44100 * 5) + 400
 int
@@ -188,7 +188,7 @@ main
 
     tsf_set_output(gTsfInstance, TSF_MONO, 22050, 0.0f);
 
-    tsf_set_volume(gTsfInstance, 1.25);
+    tsf_set_volume(gTsfInstance, 1.0);
 
     InitializeController(&mainController, 0, 0);
 

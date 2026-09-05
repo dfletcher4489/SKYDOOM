@@ -414,7 +414,7 @@ static int tsf_stream_ps2_read(PS2FileHandle* f, void* ptr, unsigned int size)
 {
 	int ret = 0;
 
-	if (f->currentOffsetPtr >= f->nextSectorInBytes)
+	if (f->currentOffsetPtr >= f->nextSectorInBytes || f->currentOffsetPtr < (f->nextSectorInBytes-f->bufferSize))
 	{
 		int startOffset = (f->currentOffsetPtr / f->bufferSize) * f->bufferSize;
 
@@ -1498,7 +1498,7 @@ TSFDEF tsf* tsf_load(struct tsf_stream* stream)
 					filePtr = tsf_get_file_pointer(stream->data);
 					sampleArenaCapacity = TSF_SAMPLECACHECOUNT * sizeof(short);
 			
-					shortBuffer = (float*)TSF_MALLOC(sampleArenaCapacity);
+					shortBuffer = (short*)memalign(128, sampleArenaCapacity);
 					smplCount = chunk.size / (unsigned int)sizeof(short);
 				}
 				
