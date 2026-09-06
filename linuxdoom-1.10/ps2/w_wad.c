@@ -201,7 +201,7 @@ static int wad_read(sceCdlFILE* file, void* ptr, int size)
 
         if (inSize > WAD_CACHE_ENTRY_SIZE)
         {
-            int ret = ReadBytesDirect(file, wadcacheLoc, startOffset, val); 
+            int ret = ReadBytesDirect(file, wadcacheLoc, startOffset, val+offset); 
 
             memcpy(outPtr, wadcacheLoc+offset, val);
 
