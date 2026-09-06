@@ -60,7 +60,7 @@ int numlumps;
 
 void **lumpcache;
 
-#define WAD_CACHE_ENTRIES_MAX 48
+#define WAD_CACHE_ENTRIES_MAX (48)
 #define WAD_CACHE_ENTRY_SIZE (16 * SECTOR_SIZE)
 #define WAD_CACHE_SIZE (WAD_CACHE_ENTRIES_MAX*WAD_CACHE_ENTRY_SIZE) 
 
@@ -69,22 +69,27 @@ static int wadOffsetPointer = 0;
 static char wadReadCache[WAD_CACHE_SIZE] __attribute__((aligned(128)));
 
 static u32 lruCacheCtr = 0;
-static u32 wadCacheLRU[WAD_CACHE_ENTRIES_MAX] = {0, 0, 0, 0};
-static u32 wadCacheAddr[WAD_CACHE_ENTRIES_MAX] = {~0, ~0, ~0, ~0};
+static u32 wadCacheLRU[WAD_CACHE_ENTRIES_MAX];
+
+static u32 wadCacheSize[WAD_CACHE_ENTRIES_MAX];
+
+static u32 wadCacheAddr[WAD_CACHE_ENTRIES_MAX];
 
 static int cachehits = 0;
 static int cachemisses = 0;
+static int bytesread = 0;
+static int bytesrequested = 0;
 
 static int CheckIfInCache(u32 addr, u32 size)
 {
     int i = 0;
     for (;i<WAD_CACHE_ENTRIES_MAX; i++)
     {
-        if (addr >= (wadCacheAddr[i] - WAD_CACHE_ENTRY_SIZE))
+        if (addr >= (wadCacheAddr[i]))
         {
-            if ((addr + size) <= (wadCacheAddr[i]))
+            if ((addr + size) <= (wadCacheAddr[i]+wadCacheSize[i]))
             {
-                wadCacheLRU[i] = lruCacheCtr++;
+                wadCacheLRU[i] = ++lruCacheCtr;
                 break;
             }
         }
@@ -108,7 +113,7 @@ static int EvictFromCache()
         }
     }
 
-    wadCacheLRU[maxi] = lruCacheCtr++;
+    wadCacheLRU[maxi] = ++lruCacheCtr;
     
     return maxi;
 }
@@ -163,12 +168,14 @@ void ExtractFileBase(char *path,
 
 static int wad_read(sceCdlFILE* file, void* ptr, int size)
 {
-  //  if (((cachehits + cachemisses) % 100) == 0)
+   //if (((cachehits + cachemisses) % 100) == 0)
     {
-     //   DEBUGLOG("hits=%d misses=%d", cachehits, cachemisses);
+       // DEBUGLOG("hits=%d misses=%d memrequested=%d memread=%d", cachehits, cachemisses, bytesrequested, bytesread);
     }
 
-    int cacheIndex = CheckIfInCache(wadOffsetPointer , size);
+    int cacheIndex = CheckIfInCache(wadOffsetPointer, size);
+
+    bytesrequested += size;
 
     if (size >= WAD_CACHE_ENTRY_SIZE
         ||  cacheIndex == WAD_CACHE_ENTRIES_MAX 
@@ -176,11 +183,13 @@ static int wad_read(sceCdlFILE* file, void* ptr, int size)
     {
         cachemisses++;
 
+        int cacheSize = 0;
+
         char* outPtr = ptr;
 
-        int offset = (wadOffsetPointer % WAD_CACHE_ENTRY_SIZE);
+        int offset = (wadOffsetPointer & SECTOR_SIZE-1);
 
-        int startOffset = (wadOffsetPointer / WAD_CACHE_ENTRY_SIZE) *  WAD_CACHE_ENTRY_SIZE;
+        int startOffset = (wadOffsetPointer >> 11) << 11;
 
         cacheIndex = EvictFromCache();
 
@@ -192,71 +201,86 @@ static int wad_read(sceCdlFILE* file, void* ptr, int size)
 
         if (inSize > WAD_CACHE_ENTRY_SIZE)
         {
-            int alignedOffset = (offset >> 11) << 11;
-
-            int ret = ReadBytesDirect(file, wadcacheLoc, startOffset+alignedOffset, val); 
-
-            offset = offset - alignedOffset;
+            int ret = ReadBytesDirect(file, wadcacheLoc, startOffset, val); 
 
             memcpy(outPtr, wadcacheLoc+offset, val);
 
             inSize -= val;
             outPtr += val;
-            startOffset += (ret + alignedOffset);
+
+            startOffset += ret;
+            bytesread += ret;
+            cacheSize = ret;
 
             while(inSize > WAD_CACHE_ENTRY_SIZE)
             {
-                ret = ReadBytesDirect(file, outPtr, startOffset, WAD_CACHE_ENTRY_SIZE);
+                ret = ReadBytesDirect(file, wadcacheLoc, startOffset, WAD_CACHE_ENTRY_SIZE);
+
+                bytesread += ret;
+
+                memcpy(outPtr, wadcacheLoc, ret);
 
                 inSize -= ret;
 
                 startOffset += ret;
 
                 outPtr += ret;
+
+                cacheSize = ret;
             }
 
             if (inSize)
             {
                 ret = ReadBytesDirect(file, wadcacheLoc, startOffset, WAD_CACHE_ENTRY_SIZE);
+
+                bytesread += ret;
                 
                 memcpy(outPtr, wadcacheLoc, inSize);
 
-                startOffset += ret;                
+                startOffset += ret;  
+                
+                cacheSize = ret;
             }
         }
         else
         {
-            int alignedOffset = (offset >> 11) << 11;
-            int inlocoffset   = offset - alignedOffset;
-
-            if (alignedOffset + WAD_CACHE_ENTRY_SIZE >= offset + inSize)
+            if (WAD_CACHE_ENTRY_SIZE >= (offset + inSize))
             {
-                int ret = ReadBytesDirect(file, wadcacheLoc, startOffset + alignedOffset, WAD_CACHE_ENTRY_SIZE);
+                int ret = ReadBytesDirect(file, wadcacheLoc, startOffset, WAD_CACHE_ENTRY_SIZE);
 
-                memcpy(outPtr, wadcacheLoc + inlocoffset, inSize);
+                bytesread += ret;
 
-                startOffset += alignedOffset + ret;
+                memcpy(outPtr, wadcacheLoc + offset, inSize);
+                startOffset += ret;
+                cacheSize = ret;
             }
             else
             {
-                val = WAD_CACHE_ENTRY_SIZE - inlocoffset;
+                int ret = ReadBytesDirect(file, wadcacheLoc, startOffset, WAD_CACHE_ENTRY_SIZE);
 
-                int ret = ReadBytesDirect(file, wadcacheLoc, startOffset + alignedOffset, val+(SECTOR_SIZE-inlocoffset));
+                bytesread += ret;
                 
-                memcpy(outPtr, wadcacheLoc + inlocoffset, val);
+                memcpy(outPtr, wadcacheLoc + offset, val);
 
                 outPtr += val;
                 inSize -= val;
-                startOffset += alignedOffset + ret;
+                startOffset += ret;
 
                 ret = ReadBytesDirect(file, wadcacheLoc, startOffset, WAD_CACHE_ENTRY_SIZE);
+
+                bytesread += ret;
+
                 memcpy(outPtr, wadcacheLoc, inSize);
 
                 startOffset += ret;
+
+                cacheSize = ret;
             }
         }
 
-        wadCacheAddr[cacheIndex] = startOffset;
+        wadCacheAddr[cacheIndex] = startOffset - cacheSize;
+
+        wadCacheSize[cacheIndex] = cacheSize;
 
         wadOffsetPointer += size;
 
@@ -267,7 +291,7 @@ static int wad_read(sceCdlFILE* file, void* ptr, int size)
 
     char* wadcacheLoc = (wadReadCache) + (cacheIndex * WAD_CACHE_ENTRY_SIZE);
 
-	int offset = ((wadOffsetPointer-wadCacheAddr[cacheIndex]) % WAD_CACHE_ENTRY_SIZE);
+	int offset = (wadOffsetPointer-wadCacheAddr[cacheIndex]);
 
 	memcpy(ptr, wadcacheLoc+offset, size);
 
@@ -339,6 +363,13 @@ void W_AddFile(char *filename)
     {
         printf(" couldn't open %s\n", filename);
         return;
+    }
+
+    for (int i = 0; i<WAD_CACHE_ENTRIES_MAX; i++)
+    {
+        wadCacheAddr[i] = ~0;
+        wadCacheLRU[i] = 0;
+        wadCacheSize[i] = 0;
     }
 
     printf(" adding %s\n", filename);
