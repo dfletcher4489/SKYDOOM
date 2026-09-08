@@ -36,7 +36,7 @@ include $(PS2SDK)/samples/Makefile.pref
 
 .PHONY : all clean clean_doom compile directories disc irx update_win
 
-all: compile disc update_win
+all: directories compile disc update_win
 
 compile:
 	make archive -C $(PS2_LIB_DIR)
