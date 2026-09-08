@@ -128,7 +128,7 @@ void I_TransferAudio()
     ERRORLOG("Never supposed to happen! %d", bufferToFill);
     return;
   }
-
+  FlushCache(0);
   while((sifTransferID = SifSetDma(&dmaStruct, 1)) == 0);
   while(SifDmaStat(sifTransferID) == 0);
 }
@@ -500,7 +500,7 @@ void I_PlaySong(int handle, int looping)
   }
 
   g_MidiMessage = playingMusic.midimessage;
-
+  audsrv_set_volume(MAX_VOLUME * ((float)snd_MusicVolume/15));
   handle = looping = 0;
   musicdies = gametic + TICRATE * 30;
   playing = false;
@@ -524,7 +524,7 @@ void I_StopSong(int handle)
 {
   // UNUSED.
   handle = 0;
-
+  audsrv_set_volume(0);
   looping = 0;
   musicdies = 0;
 }
@@ -650,7 +650,6 @@ void I_UpdateMusic(void)
 
 void I_RenderSamples(int size)
 {
-  FlushCache(0);
   s16 *out = (s16 *)(&dblBuffer[writeCount]); 
   int SampleBlock = 0;
   int SampleCount = size >> 1;
