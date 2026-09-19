@@ -10,9 +10,10 @@ PS2 DOOM port from original source code release. Tested via OPNPS2LD 0.9.3 on SM
 - Cheats
 - Wad Selector for original games (put wads in linuxdoom-1.10)
 - File cache, better loading speeds
-- Music streaming
+- Music streaming (smaller memory usage, faster initial boot time, but slower transitions between levels)
 - Jumping in game
 - Saves
+- Optimized for fastest rendering and uses GS to blit image to higher resolution. 
 
 ## Missing 
 
@@ -45,4 +46,4 @@ make all # create build directories, compile, make iso and copy to destination i
 
 ## Disclaimer
 
-I haven't tested this software with an updated ps2sdk. My only concern would be something wrong in the drawing library. You can send email to crypt4489@gmail.com if there is an issue.
+I haven't tested this software with an updated ps2sdk. My only concern would be something wrong in the drawing library. You can send an email to crypt4489@gmail.com if there is an issue.
